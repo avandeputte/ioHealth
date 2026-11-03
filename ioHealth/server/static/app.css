@@ -12,17 +12,22 @@
   --good: #16a34a;
   --bad: #dc2626;
   --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 1px 8px rgba(0, 0, 0, .04);
+  /* the layout: the top bar, the sidebar's width, and what the docked sidebar takes from the page's left edge (0 when put away) */
+  --topbar: 56px; --side: 236px; --nav: 0px; --side-bg: #f6f7f9;
+  /* hues: each destination in the sidebar has one (iopix's palette); --mix is how strongly a hue tints a background */
+  --c-blue: #1a73e8; --c-purple: #8e44d6; --c-rose: #e0426a; --c-amber: #e8a100; --c-green: #1e8e3e; --c-teal: #0b8a9e; --c-orange: #e8710a; --c-cyan: #1294b8; --c-slate: #5f6b7a; --c-indigo: #4b53c7;
+  --mix: 12%;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0f1115; --card: #181b21; --text: #e7e9ee; --muted: #9aa1ad; --line: #2a2f38; --link: #6ea8ff;
-    --shadow: none; color-scheme: dark;
+    --shadow: none; color-scheme: dark; --side-bg: #1e2024; --c-blue: #8ab4f8; --c-purple: #c58af9; --c-rose: #ff8a9e; --c-amber: #fdd663; --c-green: #81c995; --c-teal: #78d9ec; --c-orange: #fcad70; --c-cyan: #7fd1e8; --c-slate: #a8b4c2; --c-indigo: #a3a9ff; --mix: 22%;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f1115; --card: #181b21; --text: #e7e9ee; --muted: #9aa1ad; --line: #2a2f38; --link: #6ea8ff;
-  --shadow: none; color-scheme: dark;
+  --shadow: none; color-scheme: dark; --side-bg: #1e2024; --c-blue: #8ab4f8; --c-purple: #c58af9; --c-rose: #ff8a9e; --c-amber: #fdd663; --c-green: #81c995; --c-teal: #78d9ec; --c-orange: #fcad70; --c-cyan: #7fd1e8; --c-slate: #a8b4c2; --c-indigo: #a3a9ff; --mix: 22%;
 }
 
 * { box-sizing: border-box; }
@@ -42,18 +47,91 @@ h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .error { color: var(--bad); }
 .num { font-variant-numeric: tabular-nums; }
 
-header.top {
-  position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  padding: 10px 20px; background: var(--card); border-bottom: 1px solid var(--line);
-}
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); font-size: 16px; }
-.brand:hover { text-decoration: none; }
-nav { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
-nav a { padding: 6px 10px; border-radius: 8px; color: var(--muted); font-weight: 500; }
-nav a:hover { background: var(--bg); text-decoration: none; color: var(--text); }
-nav a.active { background: var(--bg); color: var(--text); }
+html, body { height: 100%; }
+body { overflow: hidden; }
+.ic { display: inline-flex; width: 24px; height: 24px; flex: none; }
+.ic svg { width: 100%; height: 100%; fill: currentColor; }
+.iconbtn { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); flex: none; }
+.iconbtn:hover { background: var(--line); color: var(--text); }
+.iconbtn .ic { width: 22px; height: 22px; }
 
-main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+/* ---- the top bar: the menu button (while the sidebar is put away), the name (on phones), the sync status, PDF and the account */
+#topbar { position: fixed; inset: 0 0 auto var(--nav); height: var(--topbar); display: flex; align-items: center; gap: 10px; padding: 0 16px 0 12px;
+  background: var(--bg); z-index: 20; }
+body.side-docked #menubtn, body.side-docked .topbrand { display: none; }
+.brand { display: flex; align-items: center; gap: 8px; color: var(--text); min-width: 0; }
+.brand:hover { text-decoration: none; }
+.brand-name { font-size: 26px; font-weight: 700; letter-spacing: -.03em; white-space: nowrap; }
+.brand-name .io { color: var(--muted); } .brand-name .nm { color: var(--accent); }
+.topbrand .brand-name { font-size: 22px; }
+#sync-status { margin-left: auto; padding-left: 8px; text-align: right; }
+
+/* ---- the sidebar: the name on top, the destinations in groups (each with its own hue), Settings and Maintenance at the
+   foot. Docked (body.side-docked) on a wide screen; otherwise hidden off the left edge and slid over the page (body.side-open).
+   Phones get a bottom bar with four destinations and More instead (below). */
+#nav { position: fixed; top: 0; bottom: 0; left: 0; width: var(--side); display: flex; flex-direction: column; gap: 2px; padding: 0 12px; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--side-bg); z-index: 30; transform: translateX(-100%); visibility: hidden; transition: transform .2s ease, visibility 0s .2s; }
+body.side-open #nav { transform: none; visibility: visible; transition: transform .2s ease; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); }
+body.side-docked #nav { transform: none; visibility: visible; transition: none; z-index: 10; box-shadow: none; border-right: 1px solid var(--line); }
+body.side-docked { --nav: var(--side); }
+#navscrim { position: fixed; inset: 0; z-index: 29; background: rgba(0, 0, 0, .32); }
+.navhead { display: flex; align-items: center; justify-content: space-between; flex: none; height: var(--topbar); padding-left: 12px; margin-bottom: 10px; }
+#sidebtn { width: 34px; height: 34px; margin-right: -4px; opacity: .75; } #sidebtn:hover { opacity: 1; } #sidebtn .ic { width: 20px; height: 20px; }
+#nav a { flex: none; display: flex; align-items: center; gap: 14px; height: 40px; padding: 0 12px; border-radius: 12px; font-size: 14px; color: var(--text); }
+#nav a:hover { text-decoration: none; }
+#nav a.on { background: color-mix(in srgb, var(--hue, var(--accent)) var(--mix), transparent); color: var(--hue, var(--accent)); font-weight: 600; }
+#nav a .ic { width: 20px; height: 20px; transition: transform .15s; color: var(--hue, var(--muted)); }
+#nav a:hover .ic { transform: scale(1.08); }
+#nav a[data-page="dashboard"] { --hue: var(--c-purple); } #nav a[data-page="day"] { --hue: var(--c-amber); } #nav a[data-page="metrics"] { --hue: var(--c-blue); }
+#nav a[data-page="correlations"] { --hue: var(--c-teal); } #nav a[data-page="workouts"] { --hue: var(--c-orange); } #nav a[data-page="map"] { --hue: var(--c-cyan); }
+#nav a[data-page="records"] { --hue: var(--c-green); } #nav a[data-page="sleep"] { --hue: var(--c-indigo); } #nav a[data-page="glucose"] { --hue: var(--c-rose); }
+#nav a[data-page="settings"], #nav a[data-page="maintenance"] { color: var(--muted); }
+body.noadmin #nav a[data-page="maintenance"] { display: none; }
+.navgap { flex: none; height: 14px; }
+.navsec { flex: none; padding: 0 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#nav .navmore { display: none; }
+.navfoot { margin-top: auto; padding: 14px 0 12px; display: flex; flex-direction: column; gap: 2px; }
+.navfoot .ver { padding: 8px 12px 0; font-size: 11px; color: var(--muted); }
+
+/* ---- the page scrolls on its own, beside the docked sidebar and under the top bar */
+main { position: fixed; top: var(--topbar); bottom: 0; left: var(--nav); right: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 8px 28px 60px 20px; }
+main > * { max-width: 1400px; margin-left: auto; margin-right: auto; }
+h1.ptitle { display: flex; align-items: center; gap: 10px; font-weight: 500; margin: 10px 0 16px; }
+h1.ptitle .pic { width: 34px; height: 34px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  background: color-mix(in srgb, var(--hue) calc(var(--mix) + 8%), transparent); color: var(--hue); }
+h1.ptitle .pic .ic { width: 22px; height: 22px; }
+h1.ptitle .muted { font-size: 13px; font-weight: 400; margin-left: 4px; }
+.row.spread > h1.ptitle { margin-bottom: 8px; }
+
+/* ---- Settings and Maintenance: a tab per group of rows, as in iopix */
+.stabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; border-bottom: 1px solid var(--line); }
+.stabs button { height: 40px; padding: 0 12px; border: 0; border-radius: 0; background: none; color: var(--muted); font-weight: 500; position: relative; }
+.stabs button:hover { color: var(--text); }
+.stabs button.on { color: var(--accent); }
+.stabs button.on::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+.srow { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 0; border-top: 1px solid var(--line); }
+.srow:first-of-type { border-top: 0; }
+.srow > div:first-child { flex: 1; min-width: 0; }
+.srow > :not(:first-child) { flex: none; max-width: 60%; }
+.srow .note { color: var(--muted); font-size: 13px; }
+.okc { color: var(--good); }
+
+/* ---- "a newer version is out", for admins (as iopix shows it) */
+#updbanner { position: fixed; right: 16px; bottom: 16px; z-index: 1500; display: flex; gap: 12px; align-items: center; max-width: min(520px, calc(100vw - 32px));
+  padding: 12px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(0, 0, 0, .2); }
+#updbanner .icwrap { width: 34px; height: 34px; border-radius: 12px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: var(--accent); }
+#updbanner .icwrap .ic { width: 20px; height: 20px; }
+#updbanner > div { min-width: 0; flex: 1; }
+#updbanner .muted { font-size: 12px; margin-top: 2px; }
+
+/* ---- phones: More, a sheet with the destinations the bottom bar has no room for */
+.sheetgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 6px; }
+.sheetgrid a { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; border-radius: 14px; background: var(--bg); color: var(--text); font-size: 13px; }
+.sheetgrid a:hover { text-decoration: none; }
+.sheetgrid a.on { background: color-mix(in srgb, var(--hue) var(--mix), transparent); color: var(--hue); font-weight: 600; }
+.sheetgrid .sic { width: 36px; height: 36px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--hue); color: #fff; }
+.sheetgrid .sic .ic { width: 20px; height: 20px; }
+
 .grid { display: grid; gap: 16px; }
 .cols-2 { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
 .cols-3 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
@@ -191,20 +269,18 @@ table.grid td { padding: 6px 8px 6px 0; border-top: 1px solid var(--line); }
 .scatter circle:hover { stroke: var(--text); stroke-width: 2; }
 .corr-bar { display: inline-block; height: 8px; border-radius: 4px; vertical-align: middle; }
 
-/* Opened from the home screen: keep the header clear of the notch and status bar. */
-@media (display-mode: standalone) {
-  header.top { padding-top: max(10px, env(safe-area-inset-top)); }
-}
 
 /* PDF export (print): no menus or buttons, light colours, cards kept whole, charts scaled to the paper. */
 @page { margin: 12mm; }
 @media print {
   :root, :root[data-theme="dark"] { --bg: #fff; --card: #fff; --text: #1b1e24; --muted: #6b7280; --line: #e5e7eb; --link: #2563eb; --shadow: none; color-scheme: light; }
-  header.top, .toolbar, .zoombar, .noprint, button, .type-picker, .hint, .leaflet-control-container { display: none !important; }
+  #topbar, #nav, #navscrim, #updbanner, .toolbar, .zoombar, .noprint, button, .type-picker, .hint, .leaflet-control-container, .stabs { display: none !important; }
   .card:not(:has(> :not(.toolbar):not(.zoombar):not(.type-picker):not(datalist))) { display: none !important; }
   #print-head { display: block; font-size: 12px; color: #444; margin: 0 0 8px; }
   body { background: #fff; }
-  main { max-width: none; padding: 0; }
+  main { position: static; overflow: visible; max-width: none; padding: 0; }
+  main > * { max-width: none; }
+  body { overflow: visible; }
   .card { break-inside: avoid; box-shadow: none; border-color: #ddd; }
   .grid { display: block; }
   .grid > .card, .kpis > .card { margin-top: 10px; }
@@ -217,15 +293,29 @@ table.grid td { padding: 6px 8px 6px 0; border-top: 1px solid var(--line); }
   a { color: inherit; }
 }
 
-@media (max-width: 640px) {
-  main { padding: 12px 16px; }
-  header.top { padding: 8px 16px; gap: 6px 10px; }
-  nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 12px; }
-  nav::-webkit-scrollbar { display: none; }
-  nav a { white-space: nowrap; padding: 5px 8px; }
-  #sync-status { flex: 1; text-align: right; }
+@media (max-width: 800px) {
+  :root { --topbar: 48px; --nav: 0px; }
+  #menubtn, #navscrim, .navhead, .navgap, .navsec, .navfoot, #nav a[data-page="settings"], #nav a[data-page="maintenance"] { display: none; }  /* Settings and Maintenance are under More */
+  #topbar { gap: 6px; padding: env(safe-area-inset-top) 8px 0 12px; height: calc(var(--topbar) + env(safe-area-inset-top)); left: 0; }
+  #topbar .topbrand { display: flex; flex: none; }
+  .topbrand .brand-name { font-size: 20px; }
+  #sync-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #nav { top: auto; bottom: 0; left: 0; right: 0; width: auto; flex-direction: row; justify-content: space-around; overflow: hidden; padding: 0 0 env(safe-area-inset-bottom); gap: 0;
+    height: calc(56px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); border-right: 0; background: var(--card); transform: none; visibility: visible; transition: none; box-shadow: none; z-index: 10; }
+  #nav a, #nav .navmore { min-width: 0; flex: 1; width: auto; border-radius: 0; height: auto; flex-direction: column; gap: 2px; padding: 8px 0 6px; font-size: 12px; color: var(--muted); }
+  #nav a .ic { width: 24px; height: 24px; }
+  #nav a.on { background: color-mix(in srgb, var(--hue, var(--accent)) var(--mix), transparent); }
+  #nav a[data-page="correlations"], #nav a[data-page="map"], #nav a[data-page="records"], #nav a[data-page="sleep"], #nav a[data-page="glucose"] { display: none; }
+  #nav .navmore { display: flex; align-items: center; background: none; border: 0; font-family: inherit; }
+  #nav .navmore .ic { width: 24px; height: 24px; }
+  #nav .navmore.on { color: var(--accent); font-weight: 600; }
+  main { top: calc(var(--topbar) + env(safe-area-inset-top)); bottom: calc(56px + env(safe-area-inset-bottom)); padding: 8px 16px 24px; }
+  #updbanner { left: 8px; right: 8px; bottom: calc(64px + env(safe-area-inset-bottom)); max-width: none; flex-wrap: wrap; justify-content: flex-end; }
+  #updbanner > div { flex: 1 1 200px; }
   .cols-2, .cols-3 { grid-template-columns: 1fr; }
   .map { height: 340px; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .kpi .value { font-size: 22px; }
+  .srow { flex-wrap: wrap; } .srow > :not(:first-child) { max-width: none; }
+  input, select { font-size: 16px; }  /* under 16px, iOS zooms the page in when a field gets focus */
 }

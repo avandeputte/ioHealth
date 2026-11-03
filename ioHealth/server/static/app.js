@@ -15,7 +15,7 @@ function h(tag, attrs, ...children) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k === 'class') el.className = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'style' && typeof v === 'object') for (const [sk, sv] of Object.entries(v)) { if (sk.startsWith('--')) el.style.setProperty(sk, sv); else el.style[sk] = sv; }
     else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
     else if (k === 'html') el.innerHTML = v;
     else el.setAttribute(k, v === true ? '' : v);
@@ -40,6 +40,106 @@ function s(tag, attrs, ...children) {
 }
 
 function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+// ---------- the menu: a sidebar with the pages in groups, Settings and Maintenance at the foot (as in iopix) ----------
+
+const ICONS = {
+  dashboard: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
+  calendar: 'M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z',
+  chart: 'M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z',
+  scatter: 'M7 10c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm8.01 3c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-.01-3c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z',
+  run: 'M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z',
+  map: 'M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z',
+  trophy: 'M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H7v2h10v-2h-4v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z',
+  bed: 'M7 13c1.66 0 3-1.34 3-3S8.66 7 7 7s-3 1.34-3 3 1.34 3 3 3zm12-6h-8v7H3V5H1v15h2v-3h18v3h2v-9c0-2.21-1.79-4-4-4z',
+  drop: 'M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8z',
+  gear: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',
+  wrench: 'M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z',
+  menu: 'M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z',
+  menuOpen: 'M3 18h13v-2H3v2zm0-5h10v-2H3v2zm0-7v2h13V6H3zm18 9.59L17.42 12 21 8.41 19.59 7l-5 5 5 5L21 15.59z',
+  pin: 'M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z',
+  close: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+  more: 'M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
+  spark: 'M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z',
+  print: 'M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z',
+  person: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+};
+function icon(name) {
+  const el = h('span', { class: 'ic' });
+  el.innerHTML = `<svg viewBox="0 0 24 24"><path d="${ICONS[name] || ''}"/></svg>`;
+  return el;
+}
+for (const el of document.querySelectorAll('.ic[data-ic]')) el.innerHTML = icon(el.dataset.ic).innerHTML;
+
+// The pages, in the sidebar's order: [page, label, icon, hue]. A gap and a heading start each group; Settings and
+// Maintenance (admins) sit at the foot. On phones the bottom bar shows the first four and the rest open from More.
+const NAV = [
+  ['dashboard', 'Dashboard', 'dashboard', 'purple'], ['day', 'Day', 'calendar', 'amber'], ['metrics', 'Metrics', 'chart', 'blue'], ['workouts', 'Workouts', 'run', 'orange'],
+  ['correlations', 'Correlations', 'scatter', 'teal'], ['map', 'Map', 'map', 'cyan'], ['records', 'Records', 'trophy', 'green'],
+  ['sleep', 'Sleep', 'bed', 'indigo'], ['glucose', 'Glucose', 'drop', 'rose'],
+];
+const NAV_GROUPS = { correlations: 'Analysis', sleep: 'Health' };  // the first page of each group after the first
+const NAV_FOOT = [['settings', 'Settings', 'gear', 'slate'], ['maintenance', 'Maintenance', 'wrench', 'slate']];
+const PHONE_BAR = ['dashboard', 'day', 'metrics', 'workouts'];
+const navHue = page => [...NAV, ...NAV_FOOT].find(n => n[0] === page)?.[3] || 'slate';
+const navLink = ([page, label, ic]) => h('a', { href: page === 'dashboard' ? '#/' : `#/${page}`, 'data-page': page }, icon(ic), h('span', { class: 'nl' }, label));
+const pageTitle = (ic, hue, ...kids) => h('h1', { class: 'ptitle', style: { '--hue': `var(--c-${hue})` } }, h('span', { class: 'pic' }, icon(ic)), ...kids);
+
+function buildNav() {
+  const nav = $('#nav');
+  nav.replaceChildren(
+    h('div', { class: 'navhead' }, h('a', { class: 'brand', href: '#/', title: 'Dashboard' }, h('img', { src: 'favicon.svg', alt: '', width: 24, height: 24 }),
+      h('span', { class: 'brand-name' }, h('span', { class: 'io' }, 'io'), h('span', { class: 'nm' }, 'Health'))), h('button', { id: 'sidebtn', class: 'iconbtn' })),
+    ...NAV.flatMap(n => [NAV_GROUPS[n[0]] ? [h('div', { class: 'navgap' }), h('div', { class: 'navsec' }, NAV_GROUPS[n[0]])] : null, navLink(n)]).flat().filter(Boolean),
+    h('button', { class: 'navmore', 'data-page': 'more', title: 'More', onclick: moreSheet }, icon('more'), 'More'),
+    h('div', { class: 'navfoot' }, ...NAV_FOOT.map(navLink), h('div', { class: 'ver', id: 'nav-version' })));
+  initSidebar();
+}
+
+/** The sidebar docks beside the page on a wide screen, unless its button put it away (remembered). Put away, or on
+ *  a narrower screen, it hides off the left edge and the menu button in the top bar slides it over the page; choosing
+ *  a page, the dimmed page or Escape puts it away again. Phones keep the bottom bar instead. */
+function initSidebar() {
+  const body = document.body, btn = $('#sidebtn'), DOCK_MIN = 1100, KEY = 'iohealth.sidebar';
+  const pref = () => { try { return localStorage.getItem(KEY) || '1'; } catch { return '1'; } };
+  const canDock = () => innerWidth >= DOCK_MIN;
+  const setOpen = on => { body.classList.toggle('side-open', on); $('#navscrim').hidden = !on; };
+  const apply = () => {
+    const docked = canDock() && pref() === '1';
+    body.classList.toggle('side-docked', docked);
+    if (docked) setOpen(false);
+    const [ic, title] = docked ? ['menuOpen', 'Hide the sidebar'] : canDock() ? ['pin', 'Keep the sidebar open'] : ['close', 'Close the sidebar'];
+    btn.replaceChildren(icon(ic)); btn.title = title; btn.setAttribute('aria-label', title);
+  };
+  btn.onclick = () => {
+    try { if (body.classList.contains('side-docked')) localStorage.setItem(KEY, '0'); else if (canDock()) localStorage.setItem(KEY, '1'); else { setOpen(false); return; } } catch { /* private mode */ }
+    apply();
+  };
+  $('#menubtn').onclick = () => setOpen(true);
+  $('#navscrim').onclick = () => setOpen(false);
+  $('#nav').addEventListener('click', e => { if (e.target.closest('a') && !body.classList.contains('side-docked')) setOpen(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && body.classList.contains('side-open')) { setOpen(false); e.stopPropagation(); } }, true);
+  addEventListener('resize', apply);
+  apply();
+}
+
+/** Phones: the bottom bar shows four pages; the rest, with Settings and Maintenance, open from More. */
+function moreSheet() {
+  const current = route().page === 'workout' ? 'workouts' : route().page;
+  const rest = [...NAV.filter(n => !PHONE_BAR.includes(n[0]) && !$(`#nav a[data-page="${n[0]}"]`)?.hidden), NAV_FOOT[0], ...(isAdmin() ? [NAV_FOOT[1]] : [])];
+  let close;
+  const grid = h('div', { class: 'sheetgrid' }, rest.map(([page, label, ic, hue]) => h('a', { href: `#/${page}`, class: current === page ? 'on' : '', style: { '--hue': `var(--c-${hue})` }, onclick: () => close() },
+    h('span', { class: 'sic' }, icon(ic)), label)));
+  const d = dialog('More', grid, [{ label: 'Close' }]);
+  close = () => document.querySelector('.scrim:last-of-type')?.remove();
+  return d;
+}
+
+function setNavOn(page) {
+  const inBar = !!$(`#nav a[data-page="${page}"]`);
+  for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('on', a.dataset.page === page);
+  $('#nav .navmore')?.classList.toggle('on', !inBar || (!PHONE_BAR.includes(page) && innerWidth <= 800));
+}
 
 const settings = (() => {
   const defaults = { units: 'metric', maxHr: '', theme: 'auto', glucoseUnit: '', glucoseLow: '70', glucoseHigh: '180', hiddenSections: [], hiddenTypes: [] };
@@ -614,13 +714,10 @@ async function render() {
   resetPage();
   const r = route();
   const pageName = r.page === 'workout' ? 'workouts' : r.page;
-  for (const a of document.querySelectorAll('#nav a')) {
-    a.classList.toggle('active', a.dataset.page === pageName);
-    if (a.dataset.page === pageName) a.parentElement.scrollLeft = Math.max(0, a.offsetLeft - 40); // phones: the menu scrolls sideways
-  }
+  setNavOn(pageName);
   const main = $('#app');
   loading(main);
-  window.scrollTo(0, 0);
+  main.scrollTo(0, 0);
   const f = pages[r.page] || pages.dashboard;
   try { await f(main, r.arg, r.params); } catch (e) { showError(main, e); }
 }
@@ -633,6 +730,8 @@ async function refreshStatus() {
     if (st.lastSync?.started) el.textContent = `Last sync ${fmtAgo(st.lastSync.finished || st.lastSync.started)}` + (st.lastSync.device ? ` from ${st.lastSync.device}` : '');
     else el.textContent = 'No sync yet';
     window.healthStatus = st;
+    if (st.version) { const v = $('#nav-version'); if (v) v.textContent = `ioHealth v${st.version}`; }
+    updateBanner(st.update);
   } catch { /* shown by the page */ }
 }
 
@@ -667,7 +766,7 @@ pages.dashboard = async (main) => {
     const after = [...alertList.children].find(c => +c.dataset.rank > +el.dataset.rank);
     alertList.insertBefore(el, after || null);
   };
-  main.append(...[h('div', { class: 'row spread' }, h('h1', {}, 'Dashboard'), h('a', { href: '#/day', class: 'small' }, 'Today in detail →')), alertsCard,
+  main.append(...[h('div', { class: 'row spread' }, pageTitle('dashboard', 'purple', 'Dashboard'), h('a', { href: '#/day', class: 'small' }, 'Today in detail →')), alertsCard,
     top.children.length ? top : null, glucoseCard, h('div', { style: { height: '16px' } }), kpis,
     show.workouts ? h('div', { class: 'grid cols-2' }, workoutsCard, weeklyCard) : null].filter(Boolean));
 
@@ -924,7 +1023,7 @@ pages.metrics = async (main, _, params) => {
 
   const out = h('div');
   const summary = h('div');
-  main.replaceChildren(h('h1', {}, 'Metrics'),
+  main.replaceChildren(pageTitle('chart', 'blue', 'Metrics'),
     h('section', { class: 'card' },
       h('div', { class: 'toolbar' }, chips),
       h('div', { class: 'toolbar' }, search, datalist, h('span', { class: 'muted small' }, 'or pick:')), quick,
@@ -1223,7 +1322,7 @@ pages.correlations = async (main, _, params) => {
   const sel = (key) => h('select', { onchange: e => { state[key] = e.target.value; draw(); } }, options.map(k => h('option', { value: k, selected: k === state[key] }, corrLabel(k))));
   const xSel = sel('x'), ySel = sel('y');
   const out = h('div'), table = h('div');
-  main.replaceChildren(h('h1', {}, 'Correlations'),
+  main.replaceChildren(pageTitle('scatter', 'teal', 'Correlations'),
     card(null, h('div', { class: 'toolbar' }, h('span', {}, 'Does'), xSel, h('span', {}, 'go with'), ySel, h('span', {}, '?')),
       h('div', { class: 'toolbar', style: { marginBottom: 0 } },
         seg([['90d', '90 days'], ['1y', '1 year'], ['2y', '2 years'], ['5y', '5 years']], state.range, v => { state.range = v; draw(); }),
@@ -1279,7 +1378,7 @@ pages.correlations = async (main, _, params) => {
     }));
     if (my !== seq) return;
     const list = rows.filter(Boolean).sort((a, b) => Math.max(...b.res.map(x => Math.abs(x?.r ?? 0))) - Math.max(...a.res.map(x => Math.abs(x?.r ?? 0))));
-    const cell = (x, lag, k) => h('td', { class: 'r num click', style: { cursor: 'pointer' }, onclick: () => { state.x = k; state.lag = lag; draw(); window.scrollTo(0, 0); } },
+    const cell = (x, lag, k) => h('td', { class: 'r num click', style: { cursor: 'pointer' }, onclick: () => { state.x = k; state.lag = lag; draw(); $('#app').scrollTo(0, 0); } },
       x?.r == null ? '—' : h('span', {}, h('span', { class: 'corr-bar', style: { width: Math.abs(x.r) * 60 + 'px', background: x.r > 0 ? '#2563eb' : '#e8445a', marginRight: '8px' } }), fmtNum(x.r, 2)));
     table.replaceChildren(card(`What goes with ${corrLabel(state.y).toLowerCase()}`, list.length ? h('div', { class: 'scroll' }, h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, 'Metric'), h('th', { class: 'r' }, 'Same day (r)'), h('th', { class: 'r' }, 'Day before (r)'), h('th', { class: 'r' }, 'Days'))),
@@ -1304,7 +1403,7 @@ pages.workouts = async (main, _, params) => {
   const rangeSel = h('select', { onchange: e => { state.range = e.target.value; draw(); } },
     [['90', 'Last 90 days'], ['365', 'Last 12 months'], ...years.map(y => ['y' + y, String(y)]), ['all', 'All time']]
       .map(([v, l]) => h('option', { value: v, selected: v === state.range }, l)));
-  main.replaceChildren(h('h1', {}, 'Workouts'), h('div', { class: 'toolbar' }, typeSel, rangeSel), body);
+  main.replaceChildren(pageTitle('run', 'orange', 'Workouts'), h('div', { class: 'toolbar' }, typeSel, rangeSel), body);
   if (!all.length) { body.append(card(null, empty('No workouts yet.'))); return; }
 
   function draw() {
@@ -1638,7 +1737,7 @@ pages.map = async (main, _, params) => {
   const mapEl = h('div', { class: 'map tall' });
   const info = h('span', { class: 'muted small' });
   const legend = h('div', { class: 'legend' });
-  main.replaceChildren(h('h1', {}, 'Map'),
+  main.replaceChildren(pageTitle('map', 'cyan', 'Map'),
     h('div', { class: 'toolbar' },
       h('select', { onchange: e => { state.type = e.target.value; draw(); } }, h('option', { value: '' }, 'All activities'),
         Object.entries(typesCount).sort((a, b) => b[1] - a[1]).map(([t, n]) => h('option', { value: t, selected: t === state.type }, `${activityName(t)} (${n})`))),
@@ -1685,7 +1784,7 @@ const STAGES = [['deep', 'Deep', '#3730a3'], ['core', 'Core', '#3b82f6'], ['rem'
 pages.sleep = async (main, _, params) => {
   const state = { range: params.get('range') || '30' };
   const body = h('div');
-  main.replaceChildren(h('h1', {}, 'Sleep'), h('div', { class: 'toolbar' },
+  main.replaceChildren(pageTitle('bed', 'indigo', 'Sleep'), h('div', { class: 'toolbar' },
     seg([['14', '2 weeks'], ['30', '30 days'], ['90', '90 days'], ['365', '1 year']], state.range, v => { state.range = v; draw(); })), body);
   async function draw() {
     resetPage();
@@ -1823,13 +1922,13 @@ pages.glucose = async (main, _, params) => {
   const types = await typeList();
   const state = { range: params.get('range') || '14', overlays: (params.get('with') || '').split(',').filter(Boolean), workouts: params.get('workouts') !== '0' };
   if (!types.blood_glucose) {
-    main.replaceChildren(h('h1', {}, 'Blood glucose'), card(null, empty('No blood glucose readings yet. Turn on Blood Glucose under Data types in the iPhone app (CGM apps such as Dexcom, Libre or a meter app write it to Health), then sync.')));
+    main.replaceChildren(pageTitle('drop', 'rose', 'Blood glucose'), card(null, empty('No blood glucose readings yet. Turn on Blood Glucose under Data types in the iPhone app (CGM apps such as Dexcom, Libre or a meter app write it to Health), then sync.')));
     return;
   }
   const body = h('div');
   const overlayChips = h('div', { class: 'row' });
   const unitSeg = h('span');
-  main.replaceChildren(h('h1', {}, 'Blood glucose'),
+  main.replaceChildren(pageTitle('drop', 'rose', 'Blood glucose'),
     h('div', { class: 'toolbar' },
       seg([['1', '24 hours'], ['3', '3 days'], ['7', '7 days'], ['14', '14 days'], ['30', '30 days'], ['90', '90 days'], ['365', '1 year']], state.range, v => { state.range = v; draw(); }),
       unitSeg),
@@ -2105,7 +2204,7 @@ pages.records = async (main) => {
   rec.records = rec.records.filter(r => r.group === 'workout' ? showWorkouts : !typeHidden(r.type));
   if (!sectionOn('activity')) rec.rings = [];
   const grid = h('div', { class: 'grid cols-3' });
-  main.replaceChildren(h('h1', {}, 'Personal records'), grid);
+  main.replaceChildren(pageTitle('trophy', 'green', 'Personal records'), grid);
   const fmtRec = r => {
     switch (r.unit) {
       case 's': return fmtDuration(r.value);
@@ -2175,7 +2274,7 @@ pages.day = async (main, arg) => {
   const side = h('div', { class: 'grid cols-2' });
   const csvRows = [];
   main.replaceChildren(
-    h('div', { class: 'row spread' }, h('h1', {}, title),
+    h('div', { class: 'row spread' }, pageTitle('calendar', 'amber', title),
       h('div', { class: 'daynav toolbar', style: { margin: 0 } }, h('button', { onclick: () => go(shift(-1)) }, '◀ Previous'), picker,
         h('button', { onclick: () => go(shift(1)), disabled: date >= today() }, 'Next ▶'), date !== today() ? h('button', { onclick: () => go(today()) }, 'Today') : null,
         csvButton(() => downloadCSV('iohealth-' + date, ['time', 'metric', 'value', 'unit'], csvRows)))),
@@ -2316,12 +2415,23 @@ pages.settings = async (main) => {
   const alertIn = (k, label, unit) => h('div', { class: 'goal-row' }, h('span', { style: { width: '300px' } }, label),
     h('input', { type: 'number', min: 0, step: 'any', value: settings.alerts?.[k] ?? '', placeholder: String(ALERT_DEFAULTS[k]), style: { width: '90px' },
       onchange: e => { settings.alerts = { ...(settings.alerts || {}), [k]: e.target.value }; saveSettings(); } }), h('span', { class: 'muted small' }, unit));
-  main.replaceChildren(h('h1', {}, 'Settings'),
+  const tab = k => h('span', { class: 'stab-mark', 'data-tab': k, hidden: true });
+  main.replaceChildren(h('div', { class: 'spage' }, pageTitle('gear', 'slate', 'Settings', h('span', { class: 'muted' }, `ioHealth v${window.healthStatus?.version || ''}`)),
+    tab('display'),
     card('Display',
       h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Units'),
         seg([['metric', 'Kilometres'], ['imperial', 'Miles']], settings.units, v => { settings.units = v; saveSettings(); })),
       h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Theme'),
         seg([['auto', 'System'], ['light', 'Light'], ['dark', 'Dark']], settings.theme, v => { settings.theme = v; saveSettings(); applyTheme(); }))),
+    card('Sections', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Switch off what you don\'t use; it disappears from the menu, the dashboard and the metric lists.'),
+      ...SECTIONS.map(([key, label, what]) => h('label', { class: 'row', style: { gap: '8px', margin: '6px 0' } },
+        h('input', { type: 'checkbox', checked: sectionOn(key), onchange: e => {
+          const set = new Set(settings.hiddenSections || []);
+          e.target.checked ? set.delete(key) : set.add(key);
+          settings.hiddenSections = [...set]; saveSettings(); typeListPromise = null; applySections();
+        } }), h('b', {}, label), h('span', { class: 'muted small' }, what)))),
+    metricsCard,
+    tab('health'),
     card('Blood glucose',
       h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Unit'),
         seg([['mg/dL', 'mg/dL'], ['mmol/L', 'mmol/L']], settings.glucoseUnit || 'mg/dL', v => { settings.glucoseUnit = v; saveSettings(); })),
@@ -2334,25 +2444,132 @@ pages.settings = async (main) => {
         h('span', { class: 'muted small' }, profile.maxHr ? `Without a value: ${profile.maxHr} bpm (${profile.maxHrFrom === 'age' ? '220 − age' : 'highest recorded'})` : '')),
       h('p', { class: 'small muted' }, 'Used for heart rate zones and training load.',
         profile.restingHr ? ` Resting heart rate, 30-day average: ${profile.restingHr} bpm.` : '')),
+    card('Profile', h('div', { class: 'stats' }, stat('Age', profile.age ?? '—'), stat('Sex', sexNames[profile.characteristics?.biologicalSex] || '—')),
+      h('p', { class: 'small muted' }, 'From the characteristics the iPhone app sends (date of birth, sex). Health data is only read, never changed.')),
+    tab('goals'),
     card('Goals', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Goals show on the dashboard cards (and as a dashed line in Metrics), with streaks and whether the trend is heading there. Daily totals such as steps count per day; levels such as weight use the latest reading.'),
       goalsEl, h('button', { onclick: addGoal, style: { marginTop: '6px' } }, '+ Add a goal')),
     card('Alerts on the dashboard', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Leave a box empty for the default shown in grey; 0 turns that alert off.'),
       alertIn('tir', 'Glucose time in range under (last 7 days)', '%'), alertIn('lows', 'Glucose lows in the last 7 days, at least', 'lows'),
       alertIn('rhr', 'Resting heart rate above your usual by', 'bpm (7 days against the 4 weeks before)'), alertIn('hrv', 'Heart rate variability below your usual by', '%'),
       alertIn('sync', 'No sync from the iPhone for', 'hours')),
-    card('On your phone', h('p', { class: 'small', style: { marginTop: 0 } }, 'Add ioHealth to the home screen and it opens full-screen like an app: in Safari on the iPhone, tap Share, then Add to Home Screen. On Android, use Chrome’s menu and Install app. Sign in once there; the session lasts 30 days.')),
-    card('Profile', h('div', { class: 'stats' }, stat('Age', profile.age ?? '—'), stat('Sex', sexNames[profile.characteristics?.biologicalSex] || '—'))),
-    card('Sections', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Switch off what you don\'t use; it disappears from the menu, the dashboard and the metric lists.'),
-      ...SECTIONS.map(([key, label, what]) => h('label', { class: 'row', style: { gap: '8px', margin: '6px 0' } },
-        h('input', { type: 'checkbox', checked: sectionOn(key), onchange: e => {
-          const set = new Set(settings.hiddenSections || []);
-          e.target.checked ? set.delete(key) : set.add(key);
-          settings.hiddenSections = [...set]; saveSettings(); typeListPromise = null; applySections();
-        } }), h('b', {}, label), h('span', { class: 'muted small' }, what)))),
-    metricsCard,
+    tab('account'),
     await accountCard(),
-    ...(isAdmin() ? [await usersCard(), await proxyCard()] : []),
-    card('About', h('p', { class: 'small muted' }, 'Settings are saved with your account, so every browser sees the same ones. Health data is only read, never changed.')));
+    card('On your phone', h('p', { class: 'small', style: { marginTop: 0 } }, 'Add ioHealth to the home screen and it opens full-screen like an app: in Safari on the iPhone, tap Share, then Add to Home Screen. On Android, use Chrome’s menu and Install app. Sign in once there; the session lasts 30 days.'),
+      h('p', { class: 'small muted' }, 'Settings are saved with your account, so every browser sees the same ones.')),
+    ...(isAdmin() ? [tab('users'), await usersCard(), tab('signin'), await proxyCard()] : [])));
+  settingsTabs($('.spage'), 'settings', [['display', 'Display'], ['health', 'Health'], ['goals', 'Goals and alerts'], ['account', 'Account'], ['users', 'Users'], ['signin', 'Sign-in at the proxy']]);
+};
+
+/** Settings and Maintenance are one page each, cut into tabs by hidden markers (as iopix does): #/settings?tab=users
+ *  links straight to a tab, else the last one opened is shown again. */
+function settingsTabs(page, view, names) {
+  if (!page) return;
+  const groups = new Map();
+  let cur = null;
+  for (const el of [...page.children]) {
+    if (el.classList.contains('stab-mark')) { cur = el.dataset.tab; groups.set(cur, []); continue; }
+    if (cur) groups.get(cur).push(el);
+  }
+  const tabs = names.filter(([k]) => groups.has(k));
+  if (tabs.length < 2) return;
+  const KEY = `iohealth.tab.${view}`;
+  let pick = route().params.get('tab');
+  if (!groups.has(pick)) { try { pick = localStorage.getItem(KEY); } catch { /* private mode */ } }
+  if (!groups.has(pick)) pick = tabs[0][0];
+  const bar = h('div', { class: 'stabs', role: 'tablist' });
+  const show = k => {
+    for (const [g, els] of groups) els.forEach(el => { el.style.display = g === k ? '' : 'none'; });
+    for (const b of bar.children) { b.classList.toggle('on', b.dataset.tab === k); b.setAttribute('aria-selected', b.dataset.tab === k); }
+    try { localStorage.setItem(KEY, k); } catch { /* private mode */ }
+    const r = route();
+    if (r.params.get('tab') !== k) { r.params.set('tab', k); history.replaceState(null, '', `#/${view}?${r.params}`); }
+  };
+  for (const [k, label] of tabs) bar.append(h('button', { role: 'tab', 'data-tab': k, onclick: () => show(k) }, label));
+  page.querySelector('.stab-mark').before(bar);
+  show(pick);
+}
+
+// ---------- maintenance (admins): the server itself, as iopix's Maintenance ----------
+
+const DISMISSED_UPDATE = 'iohealth.updateDismissed';
+/** The "a newer version is out" card, for admins, when the daily check found one (as iopix shows it): Update now runs
+ *  update.sh from here and the page reloads with the new version; dismissed per version in this browser. */
+function updateBanner(u) {
+  let b = $('#updbanner');
+  let gone = ''; try { gone = localStorage.getItem(DISMISSED_UPDATE) || ''; } catch { /* private mode */ }
+  if (!u || gone === u.remote) { if (b) b.remove(); return; }
+  if (b && b.dataset.remote === u.remote) return;
+  if (b) b.remove();
+  const text = h('div', {}, h('b', {}, u.version ? `ioHealth ${u.version} is available` : 'A newer build of ioHealth is available'),
+    h('div', { class: 'muted' }, `You have v${window.healthStatus?.version || '?'}. ${(u.message || '').replace(/^v\d+\.\d+\.\d+:\s*/, '').slice(0, 140)}`));
+  const more = h('a', { href: '#/maintenance', onclick: () => b.remove() }, h('button', { class: 'small-btn' }, 'Details'));
+  const run = u.canRun ? h('button', { class: 'small-btn primary', onclick: async () => {
+    if (!await dialog('Update ioHealth', h('p', {}, `Fetch ${u.version ? 'version ' + u.version : 'the latest version'}, refresh the packages and restart ioHealth? The page reloads when the new version is up.`), [{ label: 'Cancel', value: null }, { label: 'Update', primary: true, value: true }])) return;
+    runUpdate((msg, failed) => { run.hidden = more.hidden = true; text.replaceChildren(h('b', {}, failed ? 'The update did not finish' : 'Updating…'), h('div', { class: 'muted' }, msg)); });
+  } }, 'Update now') : null;
+  b = h('div', { id: 'updbanner', 'data-remote': u.remote }, h('span', { class: 'icwrap' }, icon('spark')), text, run, more,
+    h('button', { class: 'iconbtn', title: 'Not now (hidden until the next version)', onclick: () => { try { localStorage.setItem(DISMISSED_UPDATE, u.remote); } catch { /* private mode */ } b.remove(); } }, icon('close')));
+  document.body.append(b);
+}
+
+/** Running update.sh from the web app, then waiting for the new version: /api/status every 3 s until its version or
+ *  commit differs from what was running, then the page reloads. After 3 minutes without a change the update is
+ *  reported as not finished. onState(text, failed) gets the words to show. */
+async function runUpdate(onState) {
+  const stamp = st => `${st.version}|${st.commit || ''}`;
+  let was = '';
+  try { was = stamp(await api('status', {}, { cache: false })); } catch { /* unknown */ }
+  try { await authApi('api/update/run', { method: 'POST', body: {} }); } catch (e) { onState(e.message, true); return false; }
+  onState('Updating… the page reloads when the new version is up.', false);
+  const until = Date.now() + 180000;
+  const t = setInterval(async () => {
+    try { const st = await api('status', {}, { cache: false }); if (stamp(st) !== was) { clearInterval(t); location.reload(); return; } } catch { /* restarting */ }
+    if (Date.now() > until) {
+      clearInterval(t);
+      let msg = 'ioHealth did not come back with a new version within 3 minutes.';
+      try { const u = await authApi('api/update'); if (u.lastUpdate && !u.lastUpdate.ok) msg = u.lastUpdate.text; } catch { /* still down */ }
+      onState(msg, true);
+    }
+  }, 3000);
+  return true;
+}
+
+pages.maintenance = async (main) => {
+  if (!isAdmin()) { main.replaceChildren(h('p', { class: 'empty' }, 'Maintenance is for admins. Sign in as an admin to see it.')); return; }
+  const m = await authApi('api/maintenance');
+  const u = m.update;
+  const row = (label, detail, ...right) => h('div', { class: 'srow' }, h('div', {}, h('b', {}, label), h('div', { class: 'note' }, detail)), ...right);
+  const out = h('div', { class: 'small', style: { marginTop: '8px' } });
+  const showCheck = c => { out.className = 'small' + (c && c.status === 'error' ? ' error' : ''); out.textContent = !c ? '' : c.status === 'current' ? `Up to date (${c.installed}).`
+    : c.status === 'update' ? `A newer version is out: ${c.remoteVersion || c.remote} (${c.remoteDate}): ${c.remoteMessage}` : `Could not check: ${c.error}`; };
+  showCheck(u.check);
+  const checkBtn = h('button', { onclick: async () => { out.textContent = 'Checking…'; showCheck(await authApi('api/update/check', { method: 'POST' }).catch(e => ({ status: 'error', error: e.message }))); refreshStatus(); } }, 'Check for updates');
+  const runBtn = u.canRun ? h('button', { class: 'primary', onclick: async () => {
+    if (!await dialog('Update ioHealth', h('p', {}, 'Install the latest version and restart ioHealth? It takes about a minute; the page reloads when the new version is up.'), [{ label: 'Cancel', value: null }, { label: 'Update', primary: true, value: true }])) return;
+    runUpdate((msg, failed) => { out.className = 'small' + (failed ? ' error' : ''); out.textContent = msg; });
+  } }, 'Update now') : null;
+  const auto = h('label', { class: 'row', style: { gap: '8px' } }, h('input', { type: 'checkbox', checked: u.autoCheck, disabled: u.autoCheckLocked, onchange: async e => {
+    try { await authApi('api/update/auto', { method: 'POST', body: { on: e.target.checked } }); toast(e.target.checked ? 'ioHealth asks GitHub once a day' : 'Daily check off'); } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+  } }), 'Check for updates daily', u.autoCheckLocked ? h('span', { class: 'muted small' }, '(UPDATE_CHECK=0: off for good)') : null);
+  const tables = Object.entries(m.database.tables);
+  main.replaceChildren(h('div', { class: 'spage' }, pageTitle('wrench', 'slate', 'Maintenance', h('span', { class: 'muted' }, `ioHealth v${m.version}`)),
+    card('ioHealth version',
+      row(`Version ${m.version}, commit ${m.commit}`, m.docker ? 'Running in Docker: update by pulling the image (docker compose pull && docker compose up -d), then the container restarts on the new version.'
+        : u.canRun ? 'Update now fetches the latest code from GitHub, refreshes the packages and restarts the service (update.sh).' : 'update.sh is not runnable from here (no .venv, or the app folder is not writable by the server’s user); update by hand.',
+        h('span', { class: 'row' }, checkBtn, runBtn)),
+      u.lastUpdate ? h('p', { class: 'small ' + (u.lastUpdate.ok ? 'okc' : 'error') }, 'Last update: ' + u.lastUpdate.text) : null,
+      auto, out),
+    card('Database',
+      row('Health data', `${m.database.host}:${m.database.port}/${m.database.name}, schema version ${m.database.schemaVersion}. ${fmtCompact(m.database.tables.samples)} samples of ${m.database.types} types; ${fmtCompact(m.database.tables.workouts)} workouts, ${fmtCompact(m.database.tables.workout_route_points)} route points, ${fmtCompact(m.database.tables.heartbeats)} heartbeats, ${fmtCompact(m.database.tables.activity_summaries)} days of rings.`),
+      row('Accounts', `The ioThing suite’s shared auth database: ${m.auth.host}/${m.auth.name}. ${m.dataOwner ? `Data from before accounts belongs to ${m.dataOwner} (DATA_OWNER).` : 'Data from before accounts belongs to the first suite admin.'} ${m.syncToken ? 'The 1.x SYNC_TOKEN is still accepted for that account; remove it once the phone has an app password.' : ''}`),
+      row('Hourly rollup', `Charts over months or years read sample_hourly (${fmtCompact(m.database.tables.sample_hourly)} rows) instead of every sample. ${m.rollup.ready.length} of ${m.rollup.total} types are rolled up${m.rollup.ready.length < m.rollup.total ? '; the rest is being filled in the background, one type and month at a time' : ''}.`),
+      h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Table'), h('th', { class: 'r' }, 'Rows'))),
+        h('tbody', {}, tables.map(([t, n]) => h('tr', {}, h('td', {}, t), h('td', { class: 'r num' }, fmtCompact(n)))))))),
+    card('Uploads', h('p', { class: 'small muted', style: { marginTop: 0 } }, `The last sync of every account (${m.database.tables.sync_log} syncs so far). Time zone for days and weeks when the browser sends none: ${m.tz}.`),
+      m.syncs.length ? h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, ['Account', 'Device', 'Started', 'Finished', 'Items'].map(c => h('th', {}, c)))),
+        h('tbody', {}, m.syncs.map(x => h('tr', {}, h('td', {}, x.user), h('td', {}, x.device || '—'), h('td', { class: 'small muted' }, fmtAgo(x.started)),
+          h('td', { class: 'small muted' }, x.finished ? fmtAgo(x.finished) : 'not finished'), h('td', { class: 'r num' }, fmtCompact(x.items) + (x.fullResync ? ' (full)' : ''))))))) : h('p', { class: 'muted' }, 'No sync yet.'))));
 };
 
 // ---------- accounts: sign-in, the account menu, Settings › Account / Users / Sign-in at the proxy ----------
@@ -2500,6 +2717,7 @@ function renderUserMenu() {
   const btn = h('button', { class: 'avatar-btn', title: me.user.name, 'aria-label': 'Account', onclick: () => menu(btn, [
     { head: `${me.user.name} · ${me.user.role}${me.signedInBy === 'cloudflare' ? ' · via Cloudflare' : ''}` },
     { label: 'Settings', action: () => { location.hash = '#/settings'; } },
+    isAdmin() ? { label: 'Maintenance', action: () => { location.hash = '#/maintenance'; } } : null,
     me.user.passwordless ? null : { label: 'Change password', action: changePassword },
     { label: 'Sign out everywhere', action: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } },
     '-',
@@ -2624,6 +2842,8 @@ async function proxyCard() {
 loadMe().then(async () => {
   renderUserMenu();
   if (!me.user) { signIn(true); return; }
+  document.body.classList.toggle('noadmin', !isAdmin());
+  buildNav();
   await loadSettings();
   applyTheme();
   applySections();

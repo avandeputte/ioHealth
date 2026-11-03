@@ -43,6 +43,9 @@ MAP_TILE_ATTRIBUTION = env("MAP_TILE_ATTRIBUTION", '&copy; <a href="https://www.
 # Fallback time zone for days and weeks when a request carries no tz parameter.
 TZ = env("TZ", "UTC")
 
+# UPDATE_CHECK=0: never ask GitHub whether a newer version exists (the daily check, Maintenance › ioHealth version)
+UPDATE_CHECK = env("UPDATE_CHECK", "1") not in ("0", "false", "no", "off")
+
 
 def listen() -> tuple:
     host, _, port = LISTEN_ADDR.rpartition(":")

@@ -7,6 +7,9 @@ COPY pyproject.toml ./
 COPY app ./app
 COPY static ./static
 RUN pip install --no-cache-dir -e . && apt-get purge -y git && apt-get autoremove -y
+# the commit the image was built from, for Maintenance › ioHealth version (the workflow passes it)
+ARG COMMIT=unknown
+RUN echo "$COMMIT" > COMMIT
 # runs as its own user (uid 1000), not as root, like iopix and ionotes
 RUN useradd --uid 1000 --user-group --create-home --shell /usr/sbin/nologin iohealth && chown -R iohealth:iohealth /app
 ENV PYTHONUNBUFFERED=1

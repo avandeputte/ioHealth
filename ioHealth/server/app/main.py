@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from iothing_auth import users as shared
 from iothing_auth.proxyauth import remember_peer
 
-from app import config, db, upload, webapi
+from app import config, db, maintenance, updates, upload, webapi
 from app.auth import APP, auth, data_owner_id, sync_token_user
 
 remember_peer()  # before uvicorn's forwarded-header rewrite runs: proxy sign-in trusts the real peer
@@ -34,6 +34,7 @@ async def lifespan(_app):
     shared.init()
     db.migrate(data_owner_id)
     webapi.start_backfill()
+    updates.start_daily()
     log.info("ioHealth started, writing to %s:%s/%s (%s)", db.params()["host"], db.params()["port"], db.params()["database"],
              "accounts exist" if shared.any_users() else "no accounts yet: create the first one from the sign-in screen, inside your network")
     yield
@@ -89,6 +90,7 @@ app.include_router(auth.router())        # /api/auth/*: login, accounts, logout,
 app.include_router(auth.users_router())  # /api/users: this app's admins
 app.include_router(upload.router)
 app.include_router(webapi.router)
+app.include_router(maintenance.router)  # /api/maintenance, /api/update*: admins
 app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
 
 __all__ = ["app", "APP"]

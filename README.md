@@ -60,6 +60,7 @@ real values.
 | `MAP_TILE_URL`, `MAP_TILE_ATTRIBUTION` | no | map tiles for routes, default OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) |
 | `LISTEN_ADDR` | no | address the server listens on inside the container, default `:47800` |
 | `AUTH_PROXY`… | no | sign-in at a reverse proxy or Cloudflare Access, see [HTTPS](#https) below |
+| `UPDATE_CHECK` | no | `0`: never ask GitHub whether a newer version exists (the daily check, see [Updating](#updating)) |
 
 The container listens on port **47800**, for both the phone's uploads (`/v1/…`) and the web app (`/`).
 
@@ -179,14 +180,28 @@ docker logs -f iohealth
 
 (or `--env-file .env` instead of the `-e` flags, with the `.env` shown above.)
 
-### Building it yourself
+### Building it yourself, or running without Docker
 
 From a clone, `cd ioHealth/server && docker compose up -d` builds the image locally instead of pulling it
-(`docker-compose.yml` has `build: .`). Without Docker: `pip install -e ".[test]"` in `ioHealth/server` (Python 3.12
-or later), the settings in the environment or a `.env` there, and `python -m app`. `python -m pytest tests` runs the
-tests against a real MariaDB (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`,
+(`docker-compose.yml` has `build: .`). Without Docker: put the settings in `ioHealth/server/.env` (copy
+`.env.example`) and run `./run.sh` there (Python 3.11 or later; the first run makes `.venv` and installs the
+packages). A systemd unit named `iohealth`, or a launchd job `net.iothing.iohealth.server`, can run that same
+script; then "Update now" in the web app can restart it. `python -m pytest tests` (after `pip install -e ".[test]"`)
+runs the tests against a real MariaDB (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`,
 `health`/`health`; it makes and drops databases of its own, `health_test`, `auth_test_iohealth` and
 `health_mig_test`, so the user needs `CREATE` and `DROP`).
+
+### Updating
+
+- **Docker:** `docker compose pull && docker compose up -d`.
+- **Without Docker:** `./update.sh` in `ioHealth/server` fetches the latest code (git, or the GitHub tarball when
+  there is no checkout), installs the packages the new version asks for and only then moves the code in, then
+  restarts the service. `--check` only reports; `IOHEALTH_REF=<sha>` installs that commit.
+- **From the web app:** Maintenance › ioHealth version (admins) shows the installed version and commit, "Check for
+  updates" compares it with GitHub's `main`, and "Update now" runs `update.sh` (in Docker it says to pull instead).
+  A daily check (on by default; `UPDATE_CHECK=0` locks it off, Maintenance switches it off) shows admins a card when
+  a newer version exists, with Update now right on it, as in ioPix and ioNotes. Only the public commit list is
+  fetched; nothing about the install is sent.
 
 ### HTTPS
 
@@ -280,6 +295,12 @@ or `http://192.168.1.10:47800`) and sign in: the sign-in screen is the suite's, 
 without a password signs in with one click, on the home network only). It shows only the signed-in person's data, and
 shows new data as soon as a sync finishes.
 
+The menu is laid out as in ioPix: a sidebar with the pages in groups (Dashboard, Day, Metrics, Workouts; Analysis:
+Correlations, Map, Records; Health: Sleep, Glucose), Settings and, for admins, Maintenance at its foot. On a wide
+screen it stays docked beside the page, or its button puts it away (remembered) and the menu button slides it over
+the page when needed. On phones the same pages are a bottom bar (Dashboard, Day, Metrics, Workouts) with the rest
+under More.
+
 **Accounts** are the ioThing suite's shared accounts ([iothing-auth](https://github.com/avandeputte/iothing-auth): one
 MariaDB database shared with ioPix, ioNotes and ioContacts), so one name, password and session serve every app, and
 someone signed in at `photos.example.com` is signed in at `health.example.com` too when the apps share a domain
@@ -310,7 +331,8 @@ cost a growing wait.
 | **Glucose** | blood glucose from a CGM or meter: average, GMI (estimated A1c), time in/below/above range, variability (CV), low episodes; readings with your target band and optional overlays (heart rate, steps, carbohydrates, insulin, workouts…); the daily pattern (ambulatory glucose profile) and time in range per day; **glucose around workouts and meals**: the average change from an hour before to three hours after, per activity or per meal size (from logged carbohydrates), and each event's numbers. A workout's own page shows its glucose curve too. mg/dL or mmol/L and the target range are set in Settings |
 | **Correlations** | pick two metrics and a period: a scatter plot of the days (click a dot for that day), the correlation, how much one explains the other and the best-fit line, same day or "the day before" (sleep, workouts or carbs, then the next day's glucose). Includes glucose time in range and variability per day and workout minutes. A table ranks what else goes with the second metric |
 | **Records** | fastest running efforts from the GPS routes, best days, health bests, ring streaks, and bests per activity |
-| **Settings** | km or miles, light/dark theme, glucose unit and target range, maximum heart rate (default 220 − age from your date of birth), **goals** (any metric, at least or at most: 10,000 steps a day, weight at most 75 kg, 7.5 h of sleep…) and the thresholds for dashboard alerts, and which pages and metrics to show: turn off Sleep, Glucose or any metric you don't use and it disappears from the menu, the dashboard, Metrics and Records |
+| **Settings** | in tabs, as in ioPix. *Display*: km or miles, light/dark theme, and which pages and metrics to show (turn off Sleep, Glucose or any metric you don't use and it disappears from the menu, the dashboard, Metrics and Records). *Health*: glucose unit and target range, maximum heart rate (default 220 − age from your date of birth), your profile. *Goals and alerts*: **goals** (any metric, at least or at most: 10,000 steps a day, weight at most 75 kg, 7.5 h of sleep…) and the thresholds for dashboard alerts. *Account*: password, app passwords for the iPhone, sign out everywhere. *Users* and *Sign-in at the proxy* for admins |
+| **Maintenance** | admins: the installed version and commit with Check for updates / Update now and the daily check; the databases, schema version and table sizes, how far the hourly rollup has got, and the last upload of every account |
 
 **Export.** The ⤓ CSV buttons download what a chart or table shows (Metrics, Day, glucose readings and responses,
 workouts, sleep, correlations). ⤓ PDF in the header saves the current page through the print dialog, in light colours
@@ -325,8 +347,9 @@ together. A night of sleep is everything from 18:00 to 18:00 the next day, taken
 sleep that night. Settings are stored in the database (`web_settings`, per account), so they follow you to every browser.
 
 The web app's data comes from a JSON API under `/api/` (`types`, `series`, `workouts`, `workouts/{uuid}`, `routes`,
-`sleep`, `glucose`, `activity`, `profile`, `records`, `records/efforts`, `status`, and `settings`, which also takes `PUT`), which also accepts an app password as
-a bearer token, for scripts (`Authorization: Bearer iohealth-…`); it answers with that account's data. Map tiles load from OpenStreetMap in the browser; everything else (including the chart and map
+`sleep`, `glucose`, `activity`, `profile`, `records`, `records/efforts`, `status`, and `settings`, which also takes `PUT`; for admins `maintenance`,
+`update`, `update/check`, `update/run` and `update/auto`), which also accepts an app password as a bearer token, for
+scripts (`Authorization: Bearer iohealth-…`); it answers with that account's data. Map tiles load from OpenStreetMap in the browser; everything else (including the chart and map
 libraries, [uPlot](https://github.com/leeoniya/uPlot) and [Leaflet](https://leafletjs.com)) is served by the
 container.
 
