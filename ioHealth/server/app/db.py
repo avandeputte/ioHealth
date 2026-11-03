@@ -210,34 +210,17 @@ def _timestamp_columns(*tables) -> list:
 USER_TABLES = ("samples", "workouts", "workout_statistics", "workout_events", "workout_activities", "workout_route_points",
                "heartbeats", "deleted_objects", "sync_log")
 USER_KEYED = {"activity_summaries": "date", "characteristics": "`key`", "web_settings": "`key`", "sample_hourly": "type, hour, source_name"}
-DATA_TABLES = ("samples", "workouts", "activity_summaries", "characteristics", "sync_log", "web_settings")
 
 
-def _multi_user(owner):
-    """9: every row belongs to an account (user_id, the account's id in the shared auth database). What was there
-    before is the data owner's (DATA_OWNER, else the first suite admin): the column is added with that id as its
-    default, which MariaDB records without touching a row (ALGORITHM=INSTANT; it fails rather than rewrite a big
-    table). The default stays: every insert names user_id."""
+def _multi_user():
+    """9: every row belongs to an account (user_id, the account's id in the shared auth database). The column is added
+    without touching a row (ALGORITHM=INSTANT; it fails rather than rewrite a big table)."""
     def run(con):
         with con.cursor() as cur:
-            has_data = False
-            for t in DATA_TABLES:
-                cur.execute(f"SELECT 1 FROM {t} LIMIT 1")
-                if cur.fetchone():
-                    has_data = True
-                    break
-        uid = owner() if has_data else 0
-        if has_data and not uid:
-            raise RuntimeError("ioHealth now keeps each account's data apart, and the data already in the database needs an owner: "
-                               "create the first account (ADMIN_USER / ADMIN_PASSWORD, or `iothing-auth create`) or set DATA_OWNER "
-                               "to an existing account's name, then start again")
-        if has_data:
-            log.info("schema 9: the existing data becomes account #%d's", uid)
-        with con.cursor() as cur:
             for t in USER_TABLES:
-                cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS user_id INT NOT NULL DEFAULT {int(uid)}, ALGORITHM=INSTANT")
+                cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS user_id INT NOT NULL DEFAULT 0, ALGORITHM=INSTANT")
             for t, key in USER_KEYED.items():
-                cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS user_id INT NOT NULL DEFAULT {int(uid)}, "
+                cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS user_id INT NOT NULL DEFAULT 0, "
                             f"DROP PRIMARY KEY, ADD PRIMARY KEY (user_id, {key})")
             # the background rollup recomputes a type's hours for every account at once
             cur.execute("ALTER TABLE sample_hourly ADD INDEX IF NOT EXISTS idx_hourly_type_hour (type, hour)")
@@ -245,7 +228,7 @@ def _multi_user(owner):
     return run
 
 
-def migrations(owner) -> list:
+def migrations() -> list:
     """Applied in order, once each, and recorded in schema_version. Append; never edit one that has shipped (the
     first eight are the Go receiver's, unchanged)."""
     return [
@@ -326,7 +309,7 @@ def migrations(owner) -> list:
          "CREATE TABLE IF NOT EXISTS web_settings (`key` VARCHAR(64) PRIMARY KEY, value MEDIUMTEXT NOT NULL, "
          "updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3))"],
         # 9: every row belongs to an account
-        [_multi_user(owner)],
+        [_multi_user()],
     ]
 
 
@@ -345,15 +328,14 @@ def pending() -> bool:
         return True
 
 
-def migrate(owner=lambda: 0):
-    """Bring the schema up to date. `owner()` gives the account id for the data from before accounts (asked only
-    when migration 9 runs on a database that has data)."""
+def migrate():
+    """Bring the schema up to date."""
     with _lock, conn() as con:
         with con.cursor() as cur:
             cur.execute("CREATE TABLE IF NOT EXISTS schema_version (version INT PRIMARY KEY, applied_at DATETIME(3) NOT NULL)" + TABLE_OPTIONS)
             cur.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version")
             current = cur.fetchone()[0]
-        steps = migrations(owner)
+        steps = migrations()
         assert len(steps) == SCHEMA_VERSION
         for i in range(current, len(steps)):
             version = i + 1

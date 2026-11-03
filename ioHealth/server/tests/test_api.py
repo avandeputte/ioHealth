@@ -129,16 +129,6 @@ def test_accounts_see_only_their_own_data(client, admin):
     assert r.status_code == 403
 
 
-def test_legacy_sync_token_uploads_for_the_data_owner(client, admin):
-    client.cookies.clear()
-    sid, applied, received = upload(client, "legacy-sync-token-0123456789", sample("s1", "step_count", T0, 100))
-    assert applied == 1 and db.one("SELECT user_id FROM samples WHERE uuid = 's1'")[0] == admin["id"]
-    r = client.post("/v1/sessions", json={"deviceName": "x"}, headers={"Authorization": "Bearer wrong-token-000000000"})
-    assert r.status_code == 401
-    # the token is for the phone, not the web app
-    assert client.get("/api/status", headers={"Authorization": "Bearer legacy-sync-token-0123456789"}).status_code == 401
-
-
 def test_sleep_glucose_and_deletes(client, admin):
     pw = app_password(client)
     night = datetime(2026, 10, 1, 22, tzinfo=UTC)
@@ -180,3 +170,14 @@ def test_every_api_route_declares_access(app):
 def test_bad_dates(client, admin, bad):
     r = client.get("/api/series", params={"type": "step_count", "from": bad})
     assert r.status_code == 400 and "yyyy-mm-dd" in r.json()["error"]
+
+
+def test_the_phone_signs_in_with_the_account_password(client, admin):
+    """HTTP Basic with the user name and account password, as the iPhone app sends it (an app password works there too)."""
+    import base64
+    client.cookies.clear()
+    basic = "Basic " + base64.b64encode(b"alex:secretpw1").decode()
+    r = client.post("/v1/sessions", json={"deviceName": "aphone"}, headers={"Authorization": basic})
+    assert r.status_code == 201 and r.json()["sessionId"]
+    wrong = "Basic " + base64.b64encode(b"alex:not-the-password").decode()
+    assert client.post("/v1/sessions", json={"deviceName": "aphone"}, headers={"Authorization": wrong}).status_code == 401

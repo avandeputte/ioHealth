@@ -1,4 +1,4 @@
-"""Upgrading a 1.x database (schema 8, the Go receiver's) with data in it: the rows become the data owner's."""
+"""A database at schema 8 (the Go receiver's) with rows in it comes up to the current schema in place."""
 import os
 
 import pymysql
@@ -19,7 +19,7 @@ def old_db():
     db.configure(database=name)
     try:
         # schema 1..8 as the Go receiver applied them, then some rows
-        steps = db.migrations(lambda: 0)[:8]
+        steps = db.migrations()[:8]
         with db.conn() as con, con.cursor() as cur:
             cur.execute("CREATE TABLE schema_version (version INT PRIMARY KEY, applied_at DATETIME(3) NOT NULL)" + db.TABLE_OPTIONS)
             for i, step in enumerate(steps):
@@ -43,32 +43,17 @@ def old_db():
         con.close()
 
 
-def test_data_needs_an_owner(old_db):
+def test_schema_8_comes_up_to_date_in_place(old_db):
     assert db.schema_version() == 8
-    with pytest.raises(RuntimeError, match="needs an owner"):
-        db.migrate(lambda: 0)
-    assert db.schema_version() == 8  # nothing recorded; the next start tries again
-
-
-def test_existing_rows_become_the_owners(old_db):
-    db.migrate(lambda: 7)
-    assert db.schema_version() == 9
-    assert db.one("SELECT user_id FROM samples WHERE uuid = 's1'")[0] == 7
-    assert db.one("SELECT user_id, value FROM characteristics") == (7, "1980-01-01")
-    assert db.one("SELECT user_id FROM activity_summaries")[0] == 7
-    assert db.one("SELECT user_id FROM web_settings")[0] == 7
-    assert db.one("SELECT user_id FROM sample_hourly")[0] == 7
-    # another account's rows with the same key sit beside them
+    db.migrate()
+    assert db.schema_version() == db.SCHEMA_VERSION
+    # the rows are kept; user_id is there on every table (the pre-account rows read 0, nobody's)
+    assert db.one("SELECT user_id FROM samples WHERE uuid = 's1'")[0] == 0
+    assert db.one("SELECT user_id, value FROM characteristics") == (0, "1980-01-01")
+    assert db.one("SELECT user_id FROM sample_hourly")[0] == 0
+    # keyed tables carry the account in their primary key: another account's row with the same key sits beside
     db.ex("INSERT INTO characteristics (user_id, `key`, value) VALUES (8, 'dateOfBirth', '1990-01-01')")
     db.ex("INSERT INTO activity_summaries (user_id, date, active_energy_kcal) VALUES (8, '2026-10-01', 5)")
     assert db.one("SELECT COUNT(*) FROM characteristics")[0] == 2
-    db.migrate(lambda: 7)  # a second run is a no-op
-    assert db.schema_version() == 9
-
-
-def test_empty_database_needs_no_owner(old_db):
-    with db.conn() as con, con.cursor() as cur:
-        for t in db.DATA_TABLES:
-            cur.execute(f"DELETE FROM {t}")
-    db.migrate(lambda: 0)
-    assert db.schema_version() == 9
+    db.migrate()  # a second run is a no-op
+    assert db.schema_version() == db.SCHEMA_VERSION

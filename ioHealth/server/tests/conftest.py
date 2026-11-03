@@ -9,10 +9,9 @@ import pytest
 
 os.environ.update(DB_HOST=os.environ.get("IOHEALTH_TEST_DB_HOST", "127.0.0.1"), DB_PORT=os.environ.get("IOHEALTH_TEST_DB_PORT", "3306"),
                   DB_USER=os.environ.get("IOHEALTH_TEST_DB_USER", "health"), DB_PASSWORD=os.environ.get("IOHEALTH_TEST_DB_PASSWORD", "health"),
-                  DB_NAME="health_test", SYNC_TOKEN="legacy-sync-token-0123456789", TZ="Europe/Brussels")
+                  DB_NAME="health_test", TZ="Europe/Brussels")
 os.environ.pop("ADMIN_USER", None)
 os.environ.pop("ADMIN_PASSWORD", None)
-os.environ.pop("DATA_OWNER", None)
 os.environ["IOTHING_AUTH_DB_NAME"] = "auth_test_iohealth"
 os.environ["IOTHING_AUTH_DB_USER"] = os.environ["DB_USER"]
 os.environ["IOTHING_AUTH_DB_PASSWORD"] = os.environ["DB_PASSWORD"]
@@ -69,8 +68,6 @@ def clean(_client):
     webapi._all_types["at"] = 0.0
     webapi._kinds.clear()
     webapi.ready.types = set()
-    from app import auth
-    auth._owner.update(id=None, at=0.0)
     yield
 
 

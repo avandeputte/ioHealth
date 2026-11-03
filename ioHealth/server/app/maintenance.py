@@ -28,7 +28,7 @@ def maintenance(request: Request):
         "database": {"host": p["host"], "port": p["port"], "name": p["database"], "schemaVersion": db.schema_version(), "tables": counts, "types": types},
         "auth": {"host": config.env("IOTHING_AUTH_DB_HOST", config.DB_HOST), "name": config.env("IOTHING_AUTH_DB_NAME", "auth")},
         "rollup": {"ready": sorted(webapi.ready.types), "total": types},
-        "syncs": syncs, "syncToken": bool(config.SYNC_TOKEN), "dataOwner": config.DATA_OWNER,
+        "syncs": syncs,
         "tz": config.TZ, "update": updates.status(),
     }
 

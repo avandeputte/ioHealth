@@ -23,9 +23,6 @@ services:
       # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
       # ADMIN_USER: alex                     # the first account, on an empty auth database
       # ADMIN_PASSWORD: change-me-please
-      # --- Upgrading from 1.x: whose data is already in the database, and the phone's old token ---
-      # DATA_OWNER: alex                # default: the first suite admin
-      # SYNC_TOKEN: the-old-token       # still accepted for the DATA_OWNER account; new phones use an app password
       # --- Optional ---
       TZ: Europe/Brussels             # fallback time zone for days and weeks; the browser normally sends its own
       # MAP_TILE_URL: https://tile.openstreetmap.org/{z}/{x}/{y}.png   # map tiles for workout routes

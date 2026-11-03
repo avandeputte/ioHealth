@@ -4,16 +4,15 @@
 #
 # After the framework's own questions (resources, network) it asks about the app, as the other apps' scripts do: the
 # MariaDB server, database, user and password for the health data, the same for the suite's shared account database
-# (the one ioPix, ioNotes and ioContacts use), the cookie domain, the first account, and, when moving from 1.x, whose
-# data is already there and its upload token; then the time zone and the port. It creates the container, puts the
+# (the one ioPix, ioNotes and ioContacts use), the cookie domain, the first account, the time zone and the port. It
+# creates the container, puts the
 # server (ioHealth/server of the repository) in /opt/iohealth/app and runs its setup.sh inside, which installs the
 # packages, writes .env, installs the iohealth service and waits until it answers.
 #
 # Run on the Proxmox host as root:
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/ioHealth/server/proxmox/ct/iohealth.sh)"
 # Unattended: IOHEALTH_DB=host:port/db:user:password IOHEALTH_AUTH_DB=host:port/db:user:password
-#   IOHEALTH_SYNC_TOKEN=... IOHEALTH_DATA_OWNER=alex IOHEALTH_TZ=Europe/Brussels IOHEALTH_PORT=47800
-#   IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password IOHEALTH_UNATTENDED=1 (no "old one stopped?" question)
+#   IOHEALTH_TZ=Europe/Brussels IOHEALTH_PORT=47800 IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password
 #   in the environment answer the questions in advance. IOHEALTH_REF=<branch|sha> installs that instead of main.
 IOHEALTH_REF="${IOHEALTH_REF:-main}"
 export COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/avandeputte/ioHealth/${IOHEALTH_REF}/ioHealth/server/proxmox}"
@@ -68,18 +67,9 @@ ask_app_settings() {
     aw=$(whiptail --backtitle "$bt" --passwordbox "Its password (8 characters or more; empty: make the first account from the sign-in screen instead)" 10 72 3>&1 1>&2 2>&3) || exit 1
     [[ -n "$aw" ]] && IOHEALTH_ADMIN="$an:$aw" || IOHEALTH_ADMIN=""
   fi
-  if [[ -z "${IOHEALTH_DATA_OWNER+x}" ]]; then
-    IOHEALTH_DATA_OWNER=$(whiptail --backtitle "$bt" --inputbox "Moving from ioHealth 1.x: the account (name) that owns the data already in the database (empty: the first suite admin; a new install can leave it empty)" 11 76 "" 3>&1 1>&2 2>&3) || exit 1
-  fi
-  if [[ -z "${IOHEALTH_SYNC_TOKEN+x}" ]]; then
-    IOHEALTH_SYNC_TOKEN=$(whiptail --backtitle "$bt" --passwordbox "Moving from ioHealth 1.x: its upload token (SYNC_TOKEN), so the phone keeps syncing as that account until it gets an app password (empty: none)" 11 76 3>&1 1>&2 2>&3) || exit 1
-  fi
   local hosttz; hosttz="$(cat /etc/timezone 2>/dev/null || timedatectl show -p Timezone --value 2>/dev/null || echo UTC)"
   IOHEALTH_TZ="${IOHEALTH_TZ:-$(whiptail --backtitle "$bt" --inputbox "Time zone for days and weeks" 9 60 "$hosttz" 3>&1 1>&2 2>&3)}" || exit 1
   IOHEALTH_PORT="${IOHEALTH_PORT:-$(whiptail --backtitle "$bt" --inputbox "Port (the phone's uploads and the web app)" 9 60 "47800" 3>&1 1>&2 2>&3)}" || exit 1
-  if [[ -z "${IOHEALTH_UNATTENDED:-}" ]]; then
-    whiptail --backtitle "$bt" --yesno "Is the old ioHealth (Docker or 1.x) stopped, or is this a new install?\n\nThe first start of 2.0 migrates a 1.x database to accounts; the old receiver must not write to it meanwhile. The phone keeps its samples and sends them once the new server answers." 13 72 || { msg_error "Stop the old ioHealth first, then run this again"; exit 1; }
-  fi
 }
 
 function update_script() {
@@ -114,16 +104,14 @@ cd /tmp; rm -rf iohealth-src'
 if ! pct exec "$CTID" -- bash -c "$FETCH"; then msg_error "Could not fetch ioHealth from GitHub inside the container"; exit 1; fi
 msg_ok "Fetched ioHealth $(pct exec "$CTID" -- cut -c1-7 /opt/iohealth/app/COMMIT)"
 
-msg_info "Running the app's setup inside the container (packages, settings, service; a 1.x database is migrated now, which can take several minutes)"
+msg_info "Running the app's setup inside the container (packages, settings, tables, first account, service)"
 # the answers with passwords go in as a root-only file (pushed, read into setup.sh's environment, removed), never as arguments
 SECRETS="IOHEALTH_DB=$(printf '%q' "$IOHEALTH_DB")"$'\n'"IOHEALTH_AUTH_DB=$(printf '%q' "$IOHEALTH_AUTH_DB")"$'\n'
-[[ -n "${IOHEALTH_SYNC_TOKEN:-}" ]] && SECRETS+="IOHEALTH_SYNC_TOKEN=$(printf '%q' "$IOHEALTH_SYNC_TOKEN")"$'\n'
 [[ -n "${IOHEALTH_ADMIN:-}" ]] && SECRETS+="IOHEALTH_ADMIN=$(printf '%q' "$IOHEALTH_ADMIN")"$'\n'
 SECF="$(mktemp)"; chmod 600 "$SECF"; printf '%s' "$SECRETS" > "$SECF"
 pct push "$CTID" "$SECF" /opt/iohealth/setup.env --perms 0600 --user 0 --group 0
 rm -f "$SECF"
 SETUP_CMD="cd /opt/iohealth/app && sh ./setup.sh --yes --no-system-deps --service --port '${IOHEALTH_PORT:-47800}' --tz '${IOHEALTH_TZ:-UTC}'"
-[[ -n "${IOHEALTH_DATA_OWNER:-}" ]] && SETUP_CMD+=" --data-owner '${IOHEALTH_DATA_OWNER}'"
 [[ -n "${IOHEALTH_COOKIE_DOMAIN:-}" ]] && SETUP_CMD+=" --cookie-domain '${IOHEALTH_COOKIE_DOMAIN}'"
 WRAPPED="set -a; . /opt/iohealth/setup.env; set +a; rm -f /opt/iohealth/setup.env; $SETUP_CMD > /opt/iohealth/setup.log 2>&1"
 if ! pct exec "$CTID" -- bash -c "$WRAPPED"; then

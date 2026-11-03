@@ -1,28 +1,27 @@
 #!/bin/sh
 # ioHealth setup without Docker: asks a few questions (or takes flags), then installs the Python packages, writes
-# .env and, on Linux with systemd as root, installs and starts the `iohealth` service and waits until it answers
-# (the first start of 2.0 on a 1.x database migrates it to accounts, which can take a while on years of data).
+# .env and, on Linux with systemd as root, installs and starts the `iohealth` service and waits until it answers.
 #
 #   ./setup.sh                 ask the questions
 #   ./setup.sh --yes ...       no questions: what .env already holds, the flags below, and the defaults
 #
 # Flags: --db HOST:PORT/DATABASE:USER:PASSWORD        the health data (MariaDB / MySQL)
 #        --auth-db HOST:PORT/DATABASE:USER:PASSWORD   the ioThing suite's shared accounts (default: the same server)
-#        --cookie-domain DOMAIN   --data-owner NAME   --tz ZONE   --port N (47800)   --admin NAME:PASSWORD
+#        --cookie-domain DOMAIN   --tz ZONE   --port N (47800)   --admin NAME:PASSWORD
 #        --service | --no-service   --system-deps | --no-system-deps   --python PATH
-# Secrets can stay off the command line: IOHEALTH_DB, IOHEALTH_AUTH_DB, IOHEALTH_ADMIN and IOHEALTH_SYNC_TOKEN in the
-# environment do what --db, --auth-db, --admin and SYNC_TOKEN in .env do. Run it again at any time: it keeps .env and
+# Secrets can stay off the command line: IOHEALTH_DB, IOHEALTH_AUTH_DB and IOHEALTH_ADMIN in the environment do what
+# --db, --auth-db and --admin do. Run it again at any time: it keeps .env and
 # only changes what you answer.
 set -e
 cd "$(dirname "$0")"
 APP="$(pwd)"
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-YES=0; DBS=""; AUTHS=""; COOKIE=""; OWNER_ACC=""; TZV=""; PORT=""; ADMIN=""; SERVICE=""; SYSDEPS=""; PY=""
+YES=0; DBS=""; AUTHS=""; COOKIE=""; TZV=""; PORT=""; ADMIN=""; SERVICE=""; SYSDEPS=""; PY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1; shift;; --db) DBS="$2"; shift 2;; --auth-db) AUTHS="$2"; shift 2;; --cookie-domain) COOKIE="$2"; shift 2;;
-    --data-owner) OWNER_ACC="$2"; shift 2;; --tz) TZV="$2"; shift 2;; --port) PORT="$2"; shift 2;; --admin) ADMIN="$2"; shift 2;;
+    --tz) TZV="$2"; shift 2;; --port) PORT="$2"; shift 2;; --admin) ADMIN="$2"; shift 2;;
     --service) SERVICE=1; shift;; --no-service) SERVICE=0; shift;; --system-deps) SYSDEPS=1; shift;; --no-system-deps) SYSDEPS=0; shift;;
     --python) PY="$2"; shift 2;;
     -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
@@ -77,8 +76,6 @@ elif [ "$YES" = 0 ] && [ -t 0 ]; then
 fi
 [ -n "$COOKIE" ] || { C="$(getenv IOTHING_COOKIE_DOMAIN)"; ask COOKIE "Domain the sign-in is shared on, e.g. example.com (empty: none)" "$C"; }
 [ -n "$COOKIE" ] && setenv IOTHING_COOKIE_DOMAIN "$COOKIE"
-[ -n "$OWNER_ACC" ] && setenv DATA_OWNER "$OWNER_ACC"
-[ -n "${IOHEALTH_SYNC_TOKEN:-}" ] && setenv SYNC_TOKEN "$IOHEALTH_SYNC_TOKEN"
 [ -n "$TZV" ] || { T="$(getenv TZ)"; ask TZV "Time zone" "${T:-$(cat /etc/timezone 2>/dev/null || echo UTC)}"; }
 setenv TZ "$TZV"
 if [ -z "$PORT" ]; then L="$(getenv LISTEN_ADDR)"; ask PORT "Port" "${L##*:}"; [ -n "$PORT" ] || PORT=47800; fi
@@ -124,8 +121,8 @@ UNIT
   systemctl daemon-reload
   systemctl enable -q iohealth
   systemctl restart iohealth
-  # the database is migrated before the server answers: wait for it, as long as the service keeps running
-  say "Starting (a 1.x database is migrated first; this can take several minutes)"
+  # the tables are created or migrated before the server answers: wait for it, as long as the service keeps running
+  say "Starting"
   i=0
   until "$APP/.venv/bin/python" -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$PORT/v1/health', timeout=4)" 2>/dev/null; do
     i=$((i + 5)); sleep 5
@@ -136,7 +133,7 @@ UNIT
     [ $((i % 60)) = 0 ] && echo "  still starting after ${i}s: $(journalctl -u iohealth -n 1 --no-pager -o cat 2>/dev/null | cut -c1-120)"
     [ "$i" -ge 3600 ] && die "no answer after an hour: journalctl -u iohealth -n 100"
   done
-  say "ioHealth runs on port $PORT ($(journalctl -u iohealth --no-pager -o cat 2>/dev/null | grep -c 'applied schema migration') migrations applied in ${i}s or less)"
+  say "ioHealth runs on port $PORT"
 else
   say "Done. Start it with ./run.sh (port $PORT)"
 fi

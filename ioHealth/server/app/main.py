@@ -4,7 +4,7 @@ shared accounts (iothing-auth, as in ioPix, ioNotes and ioContacts).
 Who may call a route is declared on the route (app/access.py); iothing-auth's middleware works out who is asking
 (the shared session cookie, the identity a reverse proxy such as Cloudflare Access vouches for, or a bearer app
 password), whether sign-in is required at all (it always is here: health data is private), and refuses cross-site
-writes. The phone's old SYNC_TOKEN is still taken, for the data owner's account.
+writes.
 """
 import logging
 from contextlib import asynccontextmanager
@@ -16,7 +16,7 @@ from iothing_auth import users as shared
 from iothing_auth.proxyauth import remember_peer
 
 from app import config, db, maintenance, updates, upload, webapi
-from app.auth import APP, auth, data_owner_id, sync_token_user
+from app.auth import APP, auth
 
 remember_peer()  # before uvicorn's forwarded-header rewrite runs: proxy sign-in trusts the real peer
 
@@ -32,7 +32,7 @@ OPEN_PREFIXES = ("/vendor/", "/icon-", "/api/auth/", "/v1/")
 async def lifespan(_app):
     db.wait_for_server()
     shared.init()
-    db.migrate(data_owner_id)
+    db.migrate()
     webapi.start_backfill()
     updates.start_daily()
     log.info("ioHealth started, writing to %s:%s/%s (%s)", db.params()["host"], db.params()["port"], db.params()["database"],
@@ -47,16 +47,7 @@ def _open(path: str) -> bool:
     return path in OPEN_PATHS or path.startswith(OPEN_PREFIXES)
 
 
-def _before(request: Request):
-    """Once the user is known: the old SYNC_TOKEN signs the phone in as the data owner."""
-    if request.state.user is None and request.url.path.startswith("/v1/"):
-        u = sync_token_user(request)
-        if u:
-            request.state.user = u
-    return None
-
-
-app.middleware("http")(auth.middleware(is_open=_open, before=_before))
+app.middleware("http")(auth.middleware(is_open=_open))
 upload.on_sync.append(webapi.sync_finished)
 
 

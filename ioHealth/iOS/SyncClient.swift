@@ -7,13 +7,15 @@ import Security
 enum SyncClient {
     struct Server {
         let baseURL: URL
-        let token: String
+        /// HTTP Basic: the account's user name and password, as for the web app (the server also takes an app
+        /// password in its place).
+        let authorization: String
 
         /// Accepts "https://health.example.com", "http://192.168.1.10:47800" or a bare "host[:port]" (taken as http,
         /// port 47800 if none is given, which only works on the local network).
-        init?(address: String, token: String) {
+        init?(address: String, user: String, password: String) {
             var text = address.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, !token.isEmpty else { return nil }
+            guard !text.isEmpty, !user.isEmpty, !password.isEmpty else { return nil }
             if !text.contains("://") {
                 text = "http://" + text
                 if URL(string: text)?.port == nil { text += ":\(SyncProtocol.defaultPort)" }
@@ -21,7 +23,7 @@ enum SyncClient {
             while text.hasSuffix("/") { text.removeLast() }
             guard let url = URL(string: text), let scheme = url.scheme, ["http", "https"].contains(scheme), url.host != nil else { return nil }
             baseURL = url
-            self.token = token
+            authorization = "Basic " + Data("\(user):\(password)".utf8).base64EncodedString()
         }
     }
 
@@ -100,7 +102,7 @@ enum SyncClient {
         request.httpMethod = "POST"
         request.httpBody = body
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(server.token)", forHTTPHeaderField: "Authorization")
+        request.setValue(server.authorization, forHTTPHeaderField: "Authorization")
         for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
 
         var attempt = 0
@@ -137,7 +139,7 @@ enum SyncError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .badReply: return "The server sent an unexpected reply. Is the address right?"
-        case .unauthorized: return "The server rejected the app password. Make a new one in the web app (Settings › Account › App passwords) and paste it here."
+        case .unauthorized: return "The server rejected the user name or password. They are the same as for the web app; an account without a password cannot sync."
         case .server(let code, let message), .retryable(let code, let message):
             return "The server answered \(code)\(message.isEmpty ? "" : ": \(message)")."
         case .outOfTime: return "iOS ended the background window before the sync finished."
@@ -172,13 +174,13 @@ enum Gzip {
     }
 }
 
-/// The access token lives in the Keychain, readable after first unlock so background syncs can use it.
-enum TokenStore {
+/// The account password lives in the Keychain, readable after first unlock so background syncs can use it.
+enum CredentialStore {
     private static let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                               kSecAttrService as String: "HealthSync", // the old app name; kept so the saved token is still found
-                                               kSecAttrAccount as String: "syncToken"]
+                                               kSecAttrService as String: "HealthSync", // the old app name; kept so the entry survives updates
+                                               kSecAttrAccount as String: "password"]
 
-    static var token: String {
+    static var password: String {
         get {
             var q = query
             q[kSecReturnData as String] = true
