@@ -44,6 +44,8 @@ jobs:
           python -m pyflakes app tests
           python -c "import app.main"
           node --check static/app.js
+          bash -n proxmox/ct/iohealth.sh proxmox/install/iohealth-install.sh
+          sh -n setup.sh run.sh update.sh
       - name: Grant the test databases
         run: mysql -h 127.0.0.1 -uroot -proot -e "GRANT ALL ON *.* TO 'health'@'%'; FLUSH PRIVILEGES;"
       - name: Tests on MariaDB

@@ -217,6 +217,7 @@ address. `update` inside the container (or "Update now" in the web app) runs `up
 ### Updating
 
 - **Docker:** `docker compose pull && docker compose up -d`.
+- **Proxmox LXC:** `update` inside the container (the community-scripts command), which runs `update.sh` below.
 - **Without Docker:** `./update.sh` in `ioHealth/server` fetches the latest code (git, or the GitHub tarball when
   there is no checkout), installs the packages the new version asks for and only then moves the code in, then
   restarts the service. `--check` only reports; `IOHEALTH_REF=<sha>` installs that commit.
