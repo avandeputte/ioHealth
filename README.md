@@ -28,20 +28,26 @@ why there are two parts:
 | `ioHealth/project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec that generates the Xcode project |
 | `.github/workflows/receiver-image.yml` | runs the server's tests and builds and publishes its image |
 
-## 1. Run the server (Docker)
+## 1. Run the server
 
-The server is published as `ghcr.io/avandeputte/iohealth` (public, `linux/amd64` and `linux/arm64`). Versions up to
-1.1.1 were published as `ghcr.io/avandeputte/healthexport-receiver`; to upgrade, change the `image:` line and pull.
-Tags: `latest` (current `main`), `2.0.0` and other release versions, and one tag per branch while it's being worked on.
-It needs an existing MariaDB (or MySQL) server with two databases on it: one for the health data (created if the user
-may; tables are created and migrated at every start) and the ioThing suite's shared **auth** database, which holds the
-accounts for every app in the suite (also created at start; if ioPix, ioNotes or ioContacts already runs, point
-ioHealth at the same one and the accounts are there already).
+The server runs in any of three ways, as ioPix, ioNotes and ioContacts do; pick one:
+
+| | how | where the settings live |
+|---|---|---|
+| [Docker](#docker-with-compose) | the image `ghcr.io/avandeputte/iohealth` with Compose or `docker run` | the compose file, `-e` flags or a `.env` file |
+| [Proxmox VE (LXC)](#proxmox-ve-lxc) | one command on the Proxmox host creates a container and sets the server up inside it | `/opt/iohealth/app/.env` in the container |
+| [Standalone](#standalone-any-linux-or-mac) | `setup.sh` on any Linux box or Mac: a Python virtual environment and a `systemd` service | `ioHealth/server/.env` |
+
+Whichever way, it needs an existing MariaDB (or MySQL) server with two databases on it: one for the health data
+(created if the user may; tables are created and migrated at every start) and the ioThing suite's shared **auth**
+database, which holds the accounts for every app in the suite (also created at start; if ioPix, ioNotes or ioContacts
+already runs, point ioHealth at the same one and the accounts are there already). It listens on port **47800**, for
+both the phone's uploads and the web app; put it behind your reverse proxy for [HTTPS](#https).
 
 ### Configuration
 
-All settings are environment variables, set in the compose file, with `-e` flags, or from a `.env` file; never commit
-real values.
+All settings are environment variables (in the compose file, `-e` flags, or the `.env` file the LXC and standalone
+installs write; `setup.sh` asks for the important ones); never commit real values.
 
 | variable | required | meaning |
 |---|---|---|
@@ -58,13 +64,15 @@ real values.
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
 | `TZ` | no | fallback time zone (e.g. `Europe/Brussels`) for days and weeks; the browser sends its own, so this only matters for API calls without `tz` |
 | `MAP_TILE_URL`, `MAP_TILE_ATTRIBUTION` | no | map tiles for routes, default OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) |
-| `LISTEN_ADDR` | no | address the server listens on inside the container, default `:47800` |
+| `LISTEN_ADDR` | no | address the server listens on (inside the container, for Docker), default `:47800` |
 | `AUTH_PROXY`… | no | sign-in at a reverse proxy or Cloudflare Access, see [HTTPS](#https) below |
 | `UPDATE_CHECK` | no | `0`: never ask GitHub whether a newer version exists (the daily check, see [Updating](#updating)) |
 
-The container listens on port **47800**, for both the phone's uploads (`/v1/…`) and the web app (`/`).
+### Docker: with Compose
 
-### With Docker Compose (recommended)
+The image is `ghcr.io/avandeputte/iohealth` (public, `linux/amd64` and `linux/arm64`). Versions up to 1.1.1 were
+published as `ghcr.io/avandeputte/healthexport-receiver`; to upgrade, change the `image:` line and pull. Tags: `latest`
+(current `main`), `2.0.0` and other release versions, and one tag per branch while it's being worked on.
 
 Save this as `docker-compose.yml`, fill in the values, and run `docker compose up -d`. Every option the server
 understands is listed (the same file is in the repo as `ioHealth/server/docker-compose.ghcr.yml`):
@@ -168,7 +176,7 @@ IOTHING_AUTH_DB_PASSWORD=change-me
 ```
 </details>
 
-### With plain `docker run`
+### Docker: with plain `docker run`
 
 ```sh
 docker run -d --name iohealth --restart unless-stopped -p 47800:47800 \
@@ -178,23 +186,58 @@ docker run -d --name iohealth --restart unless-stopped -p 47800:47800 \
 docker logs -f iohealth
 ```
 
-(or `--env-file .env` instead of the `-e` flags, with the `.env` shown above.)
+(or `--env-file .env` instead of the `-e` flags, with the `.env` shown above.) From a clone,
+`cd ioHealth/server && docker compose up -d` builds the image locally instead of pulling it (`docker-compose.yml` has
+`build: .`).
 
-### Building it yourself, or running without Docker
+### Proxmox VE (LXC)
 
-From a clone, `cd ioHealth/server && docker compose up -d` builds the image locally instead of pulling it
-(`docker-compose.yml` has `build: .`). Without Docker: put the settings in `ioHealth/server/.env` (copy
-`.env.example`) and run `./run.sh` there (Python 3.11 or later; the first run makes `.venv` and installs the
-packages). A systemd unit named `iohealth`, or a launchd job `net.iothing.iohealth.server`, can run that same
-script; then "Update now" in the web app can restart it. `python -m pytest tests` (after `pip install -e ".[test]"`)
-runs the tests against a real MariaDB (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`,
-`health`/`health`; it makes and drops databases of its own, `health_test`, `auth_test_iohealth` and
-`health_mig_test`, so the user needs `CREATE` and `DROP`).
+`ioHealth/server/proxmox/ct/iohealth.sh` and `proxmox/install/iohealth-install.sh` follow the community-scripts
+(ProxmoxVE) framework layout, the same way as the other apps. On the Proxmox host, as root,
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/ioHealth/server/proxmox/ct/iohealth.sh)"
+```
+
+creates a small Debian 13 container (2 CPUs, 1 GB, 4 GB disk by default), puts the server in `/opt/iohealth/app` and
+runs its `setup.sh` there. It asks for the health database, the 1.x upload token (`SYNC_TOKEN`, so a phone set up
+before accounts keeps syncing), whose data was there before accounts, the time zone and the port (47800); then the
+framework's own questions (resources, network). The suite's shared account settings (`IOTHING_AUTH_DB_*`,
+`IOTHING_COOKIE_DOMAIN`) are copied from a running ioPix / ioNotes / ioContacts container on the same host when one
+has them in an env file under `/opt`, else asked. The passwords reach `setup.sh` through its environment (a root-only
+file pushed in and removed again), never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`.
+Moving from Docker: copy the container's `.env` to the host and run it with `IOHEALTH_ENV_FILE=/root/iohealth.env` in
+front; what that file holds is not asked again. Stop the old receiver first: it must not write while the database is
+migrated (the phone keeps its samples until the new address answers). The MariaDB users must be allowed to connect
+from the container's address. For unattended runs set `IOHEALTH_DB` and `IOHEALTH_AUTH_DB` (`host:port/db:user:password`),
+`IOHEALTH_SYNC_TOKEN`, `IOHEALTH_DATA_OWNER`, `IOHEALTH_TZ`, `IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN`, `IOHEALTH_ADMIN`
+(`name:password`) and `IOHEALTH_UNATTENDED=1`. `update` inside the container (or "Update now" in the web app) runs
+`update.sh`.
+
+### Standalone: any Linux or Mac
+
+```sh
+git clone https://github.com/avandeputte/ioHealth && cd ioHealth/ioHealth/server
+./setup.sh          # asks for the databases, the port and the first account; installs a systemd service when run as root
+./run.sh            # or start it in the foreground
+./update.sh         # later: the latest code, same settings
+```
+
+`setup.sh` takes flags instead of questions (`--db`, `--auth-db`, `--data-owner`, `--tz`, `--port`,
+`--cookie-domain`, `--admin`, `--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_AUTH_DB`, `IOHEALTH_ADMIN`
+and `IOHEALTH_SYNC_TOKEN` in the environment), writes `.env` (readable by the owner only), makes `.venv` (Python 3.11
+or later), installs the `iohealth` systemd service and waits until it answers (on a 1.x database the first start
+migrates it to accounts first). Without the service, `./run.sh` starts it in the foreground from the same `.env`; a
+launchd job `net.iothing.iohealth.server` on a Mac can run that script, and "Update now" in the web app restarts
+either. `python -m pytest tests` (after `pip install -e ".[test]"`) runs the tests against a real MariaDB
+(`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`, `health`/`health`; it makes and drops
+databases of its own, `health_test`, `auth_test_iohealth` and `health_mig_test`, so the user needs `CREATE` and `DROP`).
 
 ### Updating
 
 - **Docker:** `docker compose pull && docker compose up -d`.
-- **Without Docker:** `./update.sh` in `ioHealth/server` fetches the latest code (git, or the GitHub tarball when
+- **Proxmox LXC:** `update` inside the container (the community-scripts command), which runs `update.sh` below.
+- **Standalone:** `./update.sh` in `ioHealth/server` fetches the latest code (git, or the GitHub tarball when
   there is no checkout), installs the packages the new version asks for and only then moves the code in, then
   restarts the service. `--check` only reports; `IOHEALTH_REF=<sha>` installs that commit.
 - **From the web app:** Maintenance › ioHealth version (admins) shows the installed version and commit, "Check for
@@ -205,7 +248,7 @@ runs the tests against a real MariaDB (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`
 
 ### HTTPS
 
-The container speaks plain HTTP; put it behind your reverse proxy for HTTPS. With Caddy, which gets a certificate by
+The server speaks plain HTTP; put it behind your reverse proxy for HTTPS. With Caddy, which gets a certificate by
 itself:
 
 ```
