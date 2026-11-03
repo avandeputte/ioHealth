@@ -59,7 +59,7 @@ installs write; `setup.sh` asks for the important ones); never commit real value
 | `IOTHING_AUTH_DB_NAME`, `IOTHING_AUTH_DB_USER`, `IOTHING_AUTH_DB_PASSWORD` | yes | the shared account database (default name `auth`) and a user that may create tables in it |
 | `IOTHING_COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
 | `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty account database (or create it from the sign-in screen instead) |
-| `DATA_OWNER` | upgrade | whose data was in the database before accounts, as an account name; default: the first suite admin. Only matters once, when upgrading from 1.x |
+| `DATA_OWNER` | upgrade | whose data was in the database before accounts, as an account name (the person whose health data it is). Required once, when upgrading from 1.x; `SYNC_TOKEN` uploads go to that account |
 | `SYNC_TOKEN` | upgrade | the single upload token of 1.x: still accepted, for the `DATA_OWNER` account, so a phone set up before accounts keeps syncing. New phones use an app password; remove it to retire it |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
 | `TZ` | no | fallback time zone (e.g. `Europe/Brussels`) for days and weeks; the browser sends its own, so this only matters for API calls without `tz` |
@@ -101,7 +101,7 @@ services:
       # ADMIN_USER: alex                     # the first account, on an empty auth database
       # ADMIN_PASSWORD: change-me-please
       # --- Upgrading from 1.x: whose data is already in the database, and the phone's old token ---
-      # DATA_OWNER: alex                # default: the first suite admin
+      # DATA_OWNER: alex                # required when upgrading from 1.x: whose data is already there
       # SYNC_TOKEN: the-old-token       # still accepted for the DATA_OWNER account; new phones use an app password
       # --- Optional ---
       TZ: Europe/Brussels             # fallback time zone for days and weeks; the browser normally sends its own
@@ -130,9 +130,12 @@ Then open `http://localhost:47800/` and sign in (or, on an empty account databas
 there). Update later with `docker compose pull && docker compose up -d`.
 
 **Upgrading from 1.x** (the Go receiver, schema 8): the tables are kept and get a `user_id` column; every row that is
-already there becomes the `DATA_OWNER` account's, so create that account first (`ADMIN_USER`/`ADMIN_PASSWORD`, or an
-account that ioPix or ioNotes already made) or the server refuses to start until it knows whose data it is. `SYNC_TOKEN`
-keeps working for that account, so the phone keeps syncing until you give it an app password. `WEB_PASSWORD` is gone:
+already there becomes the `DATA_OWNER` account's (an account that ioPix or ioNotes already made, or the first one
+created with `ADMIN_USER`/`ADMIN_PASSWORD`); the server refuses to start until it is told whose data it is. `SYNC_TOKEN`
+keeps working for that account, so the phone keeps syncing until you give it an app password. Handed to the wrong
+account? `python -m app.reassign wrong right` in the server folder (`.venv/bin/python` on an LXC or standalone install,
+`docker compose exec iohealth python -m app.reassign wrong right` in Docker) moves every row to the right account, in
+small batches (a Galera cluster takes them in its stride); then correct `DATA_OWNER` and restart. `WEB_PASSWORD` is gone:
 the web app uses the accounts. The columns are added in place (`ALGORITHM=INSTANT`), so the upgrade takes seconds
 even with years of data and is fine on a Galera cluster.
 
@@ -203,7 +206,7 @@ creates a small Debian 13 container (2 CPUs, 1 GB, 4 GB disk by default), puts t
 runs its `setup.sh` there. It asks, as the other apps' scripts do, for the MariaDB host, port, database, user and
 password of the health data, the same for the suite's shared account database (the one ioPix, ioNotes and ioContacts
 use), the cookie domain, the first account (only used when that database is still empty), and, when moving from
-1.x, the account that owns the existing data and the old upload token (`SYNC_TOKEN`, so a phone set up before
+1.x, the account that owns the existing data (required then) and the old upload token (`SYNC_TOKEN`, so a phone set up before
 accounts keeps syncing); then the time zone and the port (47800), after the framework's own questions (resources,
 network). The passwords reach `setup.sh` through its environment (a root-only file pushed in and removed again),
 never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`. Stop the old receiver first: it

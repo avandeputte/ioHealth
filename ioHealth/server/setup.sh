@@ -77,6 +77,7 @@ elif [ "$YES" = 0 ] && [ -t 0 ]; then
 fi
 [ -n "$COOKIE" ] || { C="$(getenv IOTHING_COOKIE_DOMAIN)"; ask COOKIE "Domain the sign-in is shared on, e.g. example.com (empty: none)" "$C"; }
 [ -n "$COOKIE" ] && setenv IOTHING_COOKIE_DOMAIN "$COOKIE"
+[ -n "$OWNER_ACC" ] || { O="$(getenv DATA_OWNER)"; ask OWNER_ACC "Moving from ioHealth 1.x: the account whose health data is already in the database, e.g. alex (a new install: empty)" "$O"; }
 [ -n "$OWNER_ACC" ] && setenv DATA_OWNER "$OWNER_ACC"
 [ -n "${IOHEALTH_SYNC_TOKEN:-}" ] && setenv SYNC_TOKEN "$IOHEALTH_SYNC_TOKEN"
 [ -n "$TZV" ] || { T="$(getenv TZ)"; ask TZV "Time zone" "${T:-$(cat /etc/timezone 2>/dev/null || echo UTC)}"; }

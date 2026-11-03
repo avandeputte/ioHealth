@@ -229,8 +229,8 @@ def _multi_user(owner):
         uid = owner() if has_data else 0
         if has_data and not uid:
             raise RuntimeError("ioHealth now keeps each account's data apart, and the data already in the database needs an owner: "
-                               "create the first account (ADMIN_USER / ADMIN_PASSWORD, or `iothing-auth create`) or set DATA_OWNER "
-                               "to an existing account's name, then start again")
+                               "set DATA_OWNER to the name of the account whose health data this is (an existing account in the "
+                               "shared auth database; the installers ask for it), then start again")
         if has_data:
             log.info("schema 9: the existing data becomes account #%d's", uid)
         with con.cursor() as cur:

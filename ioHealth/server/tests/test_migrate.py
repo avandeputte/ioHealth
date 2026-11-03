@@ -72,3 +72,21 @@ def test_empty_database_needs_no_owner(old_db):
             cur.execute(f"DELETE FROM {t}")
     db.migrate(lambda: 0)
     assert db.schema_version() == 9
+
+
+def test_reassign_moves_every_row_to_another_account(old_db):
+    from app import reassign
+    db.migrate(lambda: 7)
+    # a few more sample rows, so the batches have something to walk; another account's row stays put
+    with db.conn() as con, con.cursor() as cur:
+        for i in range(2, 9):
+            cur.execute("INSERT INTO samples (uuid, type, kind, start_date, end_date, value, unit) VALUES (%s, 'step_count', 'quantity', '2026-10-01 08:00', '2026-10-01 08:01', 1, 'count')", (f"s{i}",))
+        cur.execute("INSERT INTO samples (user_id, uuid, type, kind, start_date, end_date, value, unit) VALUES (8, 'other', 'step_count', 'quantity', '2026-10-01 08:00', '2026-10-01 08:01', 1, 'count')")
+    assert reassign.counts(7)["samples"] == 8
+    moved = reassign.reassign(7, 3, batch=3, pause=0, log=lambda *_: None)
+    assert moved["samples"] == 8 and moved["characteristics"] == 1 and moved["sample_hourly"] == 1
+    assert reassign.counts(7) == {t: 0 for t in reassign.TABLES}
+    assert db.one("SELECT COUNT(*) FROM samples WHERE user_id = 3")[0] == 8
+    assert db.one("SELECT user_id FROM samples WHERE uuid = 'other'")[0] == 8
+    assert str(db.one("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'user_id'")[0]) == "3"
+    assert reassign.reassign(7, 3, pause=0, log=lambda *_: None) == {t: 0 for t in reassign.TABLES}  # nothing left: a no-op

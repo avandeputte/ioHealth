@@ -69,7 +69,7 @@ ask_app_settings() {
     [[ -n "$aw" ]] && IOHEALTH_ADMIN="$an:$aw" || IOHEALTH_ADMIN=""
   fi
   if [[ -z "${IOHEALTH_DATA_OWNER+x}" ]]; then
-    IOHEALTH_DATA_OWNER=$(whiptail --backtitle "$bt" --inputbox "Moving from ioHealth 1.x: the account (name) that owns the data already in the database (empty: the first suite admin; a new install can leave it empty)" 11 76 "" 3>&1 1>&2 2>&3) || exit 1
+    IOHEALTH_DATA_OWNER=$(whiptail --backtitle "$bt" --inputbox "Moving from ioHealth 1.x: the name of the account whose health data is already in the database, e.g. alex (required then: the server refuses to start without it; a new install leaves it empty)" 11 76 "" 3>&1 1>&2 2>&3) || exit 1
   fi
   if [[ -z "${IOHEALTH_SYNC_TOKEN+x}" ]]; then
     IOHEALTH_SYNC_TOKEN=$(whiptail --backtitle "$bt" --passwordbox "Moving from ioHealth 1.x: its upload token (SYNC_TOKEN), so the phone keeps syncing as that account until it gets an app password (empty: none)" 11 76 3>&1 1>&2 2>&3) || exit 1

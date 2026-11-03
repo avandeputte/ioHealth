@@ -16,7 +16,7 @@ from iothing_auth import users as shared
 from iothing_auth.proxyauth import remember_peer
 
 from app import config, db, maintenance, updates, upload, webapi
-from app.auth import APP, auth, data_owner_id, sync_token_user
+from app.auth import APP, auth, migration_owner, sync_token_user
 
 remember_peer()  # before uvicorn's forwarded-header rewrite runs: proxy sign-in trusts the real peer
 
@@ -32,7 +32,7 @@ OPEN_PREFIXES = ("/vendor/", "/icon-", "/api/auth/", "/v1/")
 async def lifespan(_app):
     db.wait_for_server()
     shared.init()
-    db.migrate(data_owner_id)
+    db.migrate(migration_owner)
     webapi.start_backfill()
     updates.start_daily()
     log.info("ioHealth started, writing to %s:%s/%s (%s)", db.params()["host"], db.params()["port"], db.params()["database"],

@@ -42,6 +42,13 @@ def data_owner_id() -> int:
     return uid
 
 
+def migration_owner() -> int:
+    """The account the pre-account rows go to when schema 9 is applied: DATA_OWNER, named explicitly. No guessing
+    here (the first suite admin is often not the person whose health data this is); without it the migration refuses
+    and says what to set."""
+    return data_owner_id() if config.DATA_OWNER else 0
+
+
 def sync_token_user(request: Request):
     """The data owner, for a request carrying the old SYNC_TOKEN as its bearer token."""
     import hmac
