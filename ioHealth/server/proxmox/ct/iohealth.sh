@@ -2,21 +2,19 @@
 # ioHealth LXC for Proxmox VE, in the community-scripts (ProxmoxVE) framework layout, as ioContacts and ioNotes:
 # this is the ct/ script; proxmox/install/iohealth-install.sh runs inside the container.
 #
-# After the framework's own questions (resources, network) it asks about the app: the MariaDB server with the health
-# data, the 1.x upload token (so a phone set up before accounts keeps syncing), whose data was there before accounts,
-# the time zone and the port. The suite's shared account settings (IOTHING_AUTH_DB_*, IOTHING_COOKIE_DOMAIN) are
-# copied from a running ioPix / ioNotes / ioContacts container on this host when one has them, else asked. It creates
-# the container, puts the server (ioHealth/server of the repository) in /opt/iohealth/app and runs its setup.sh
-# inside, which installs the packages, writes .env, installs the iohealth service and waits until it answers.
+# After the framework's own questions (resources, network) it asks about the app, as the other apps' scripts do: the
+# MariaDB server, database, user and password for the health data, the same for the suite's shared account database
+# (the one ioPix, ioNotes and ioContacts use), the cookie domain, the first account, and, when moving from 1.x, whose
+# data is already there and its upload token; then the time zone and the port. It creates the container, puts the
+# server (ioHealth/server of the repository) in /opt/iohealth/app and runs its setup.sh inside, which installs the
+# packages, writes .env, installs the iohealth service and waits until it answers.
 #
 # Run on the Proxmox host as root:
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/ioHealth/server/proxmox/ct/iohealth.sh)"
-# Moving from Docker: copy the container's .env to the host and name it, and the questions it answers are skipped:
-#   IOHEALTH_ENV_FILE=/root/iohealth.env bash -c "$(curl -fsSL .../iohealth.sh)"
 # Unattended: IOHEALTH_DB=host:port/db:user:password IOHEALTH_AUTH_DB=host:port/db:user:password
 #   IOHEALTH_SYNC_TOKEN=... IOHEALTH_DATA_OWNER=alex IOHEALTH_TZ=Europe/Brussels IOHEALTH_PORT=47800
-#   IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password IOHEALTH_UNATTENDED=1 (no "old one stopped?" question).
-#   IOHEALTH_REF=<branch|sha> installs that instead of main.
+#   IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password IOHEALTH_UNATTENDED=1 (no "old one stopped?" question)
+#   in the environment answer the questions in advance. IOHEALTH_REF=<branch|sha> installs that instead of main.
 IOHEALTH_REF="${IOHEALTH_REF:-main}"
 export COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/avandeputte/ioHealth/${IOHEALTH_REF}/ioHealth/server/proxmox}"
 _cs_boot="${COMMUNITY_SCRIPTS_CORE_DIR:-$(dirname "${BASH_SOURCE[0]}")/../../core}/core/build.func"
@@ -40,75 +38,47 @@ variables
 color
 catch_errors
 
-envval() { [[ -n "${IOHEALTH_ENV_FILE:-}" ]] && sed -n "s/^$1=//p" "$IOHEALTH_ENV_FILE" | tail -n 1; true; }
-
-# The shared account settings of a running sibling app on this host: the first container with an env file under /opt
-# that holds IOTHING_AUTH_DB_PASSWORD. Sets SUITE_AUTH (its IOTHING_* lines) and SUITE_FROM.
-find_suite_auth() {
-  local id out
-  for id in $(pct list 2>/dev/null | awk 'NR>1 && $2=="running" {print $1}'); do
-    out=$(pct exec "$id" -- sh -c 'for f in /opt/*/app/*.env /opt/*/app/.env /opt/*/*.env /opt/*/.env; do
-      [ -f "$f" ] && grep -q "^IOTHING_AUTH_DB_PASSWORD=." "$f" && { grep -E "^IOTHING_(AUTH_DB_[A-Z]+|COOKIE_DOMAIN)=" "$f"; echo "#from=$f"; exit 0; }
-    done; exit 1' 2>/dev/null) || continue
-    SUITE_FROM="CT $id, ${out##*#from=}"; SUITE_AUTH="${out%#from=*}"
-    return 0
-  done
-  return 1
-}
-suiteval() { printf '%s\n' "${SUITE_AUTH:-}" | sed -n "s/^$1=//p" | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"; }
-
-# ---- the app's own questions (whiptail on the host; IOHEALTH_* in the environment, or IOHEALTH_ENV_FILE, skip them)
+# ---- the app's own questions (whiptail on the host, as the other apps' scripts ask them; IOHEALTH_* in the
+# environment answer them in advance for unattended runs)
 ask_app_settings() {
   local bt="ioHealth" h p d u w
-  if [[ -n "${IOHEALTH_ENV_FILE:-}" && ! -r "$IOHEALTH_ENV_FILE" ]]; then msg_error "IOHEALTH_ENV_FILE: cannot read $IOHEALTH_ENV_FILE"; exit 1; fi
   if [[ -z "${IOHEALTH_DB:-}" ]]; then
-    if [[ -n "$(envval DB_HOST)" ]]; then
-      IOHEALTH_DB="$(envval DB_HOST):$(envval DB_PORT)/$(envval DB_NAME):$(envval DB_USER):$(envval DB_PASSWORD)"
-      IOHEALTH_DB="${IOHEALTH_DB/:\//:3306/}"
-    else
-      h=$(whiptail --backtitle "$bt" --inputbox "MariaDB / MySQL host or IP (the health data is kept there)" 9 70 "192.168.1.89" 3>&1 1>&2 2>&3) || exit 1
-      p=$(whiptail --backtitle "$bt" --inputbox "Port" 9 60 "3306" 3>&1 1>&2 2>&3) || exit 1
-      d=$(whiptail --backtitle "$bt" --inputbox "Database (created if the user may)" 9 60 "health" 3>&1 1>&2 2>&3) || exit 1
-      u=$(whiptail --backtitle "$bt" --inputbox "User" 9 60 "health" 3>&1 1>&2 2>&3) || exit 1
-      w=$(whiptail --backtitle "$bt" --passwordbox "Password" 9 60 3>&1 1>&2 2>&3) || exit 1
-      IOHEALTH_DB="$h:$p/$d:$u:$w"
-    fi
+    h=$(whiptail --backtitle "$bt" --inputbox "MariaDB / MySQL host or IP (the health data is kept there)" 9 70 "192.168.1.89" 3>&1 1>&2 2>&3) || exit 1
+    p=$(whiptail --backtitle "$bt" --inputbox "Port" 9 60 "3306" 3>&1 1>&2 2>&3) || exit 1
+    d=$(whiptail --backtitle "$bt" --inputbox "Database for the health data (created if the user may)" 9 70 "health" 3>&1 1>&2 2>&3) || exit 1
+    u=$(whiptail --backtitle "$bt" --inputbox "User" 9 60 "health" 3>&1 1>&2 2>&3) || exit 1
+    w=$(whiptail --backtitle "$bt" --passwordbox "Password" 9 60 3>&1 1>&2 2>&3) || exit 1
+    IOHEALTH_DB="$h:$p/$d:$u:$w"
   fi
   local dbhost="${IOHEALTH_DB%%:*}" r="${IOHEALTH_DB#*:}"; local dbport="${r%%/*}"
   if [[ -z "${IOHEALTH_AUTH_DB:-}" ]]; then
-    if [[ -n "$(envval IOTHING_AUTH_DB_PASSWORD)" ]]; then
-      SUITE_AUTH="$(grep -E '^IOTHING_(AUTH_DB_[A-Z]+|COOKIE_DOMAIN)=' "$IOHEALTH_ENV_FILE")"; SUITE_FROM="$IOHEALTH_ENV_FILE"
-    elif find_suite_auth; then
-      msg_ok "Shared account settings copied from $SUITE_FROM"
-    else
-      whiptail --backtitle "$bt" --msgbox "No running ioPix / ioNotes / ioContacts container on this host has the suite's shared account settings (IOTHING_AUTH_DB_PASSWORD in an env file under /opt). Enter them next." 10 72
-      d=$(whiptail --backtitle "$bt" --inputbox "Shared account database (on $dbhost:$dbport)" 9 70 "auth" 3>&1 1>&2 2>&3) || exit 1
-      u=$(whiptail --backtitle "$bt" --inputbox "Its user" 9 60 "auth" 3>&1 1>&2 2>&3) || exit 1
-      w=$(whiptail --backtitle "$bt" --passwordbox "Its password" 9 60 3>&1 1>&2 2>&3) || exit 1
-      SUITE_AUTH="IOTHING_AUTH_DB_NAME=$d"$'\n'"IOTHING_AUTH_DB_USER=$u"$'\n'"IOTHING_AUTH_DB_PASSWORD=$w"
-    fi
-    local ah ap an au
-    ah="$(suiteval IOTHING_AUTH_DB_HOST)"; ap="$(suiteval IOTHING_AUTH_DB_PORT)"; an="$(suiteval IOTHING_AUTH_DB_NAME)"; au="$(suiteval IOTHING_AUTH_DB_USER)"
-    IOHEALTH_AUTH_DB="${ah:-$dbhost}:${ap:-$dbport}/${an:-auth}:${au:-auth}:$(suiteval IOTHING_AUTH_DB_PASSWORD)"
-    IOHEALTH_COOKIE_DOMAIN="${IOHEALTH_COOKIE_DOMAIN:-$(suiteval IOTHING_COOKIE_DOMAIN)}"
+    h=$(whiptail --backtitle "$bt" --inputbox "Host of the suite's shared account database, the one ioPix, ioNotes and ioContacts sign in against (accounts, passwords and sessions are shared)" 11 76 "$dbhost" 3>&1 1>&2 2>&3) || exit 1
+    p=$(whiptail --backtitle "$bt" --inputbox "Port" 9 60 "$dbport" 3>&1 1>&2 2>&3) || exit 1
+    d=$(whiptail --backtitle "$bt" --inputbox "Account database (created if the user may)" 9 70 "auth" 3>&1 1>&2 2>&3) || exit 1
+    u=$(whiptail --backtitle "$bt" --inputbox "Its user" 9 60 "auth" 3>&1 1>&2 2>&3) || exit 1
+    w=$(whiptail --backtitle "$bt" --passwordbox "Its password" 9 60 3>&1 1>&2 2>&3) || exit 1
+    IOHEALTH_AUTH_DB="$h:$p/$d:$u:$w"
   fi
   if [[ -z "${IOHEALTH_COOKIE_DOMAIN+x}" ]]; then
-    IOHEALTH_COOKIE_DOMAIN=$(whiptail --backtitle "$bt" --inputbox "Domain the sign-in is shared on, as for the other apps (e.g. example.com; empty: none)" 9 76 "$(envval IOTHING_COOKIE_DOMAIN)" 3>&1 1>&2 2>&3) || exit 1
+    IOHEALTH_COOKIE_DOMAIN=$(whiptail --backtitle "$bt" --inputbox "Domain the sign-in is shared on, as for the other apps (e.g. example.com; empty: none)" 9 76 "" 3>&1 1>&2 2>&3) || exit 1
   fi
-  if [[ -z "${IOHEALTH_SYNC_TOKEN+x}" ]]; then
-    IOHEALTH_SYNC_TOKEN="$(envval SYNC_TOKEN)"
-    [[ -n "$IOHEALTH_SYNC_TOKEN" ]] || IOHEALTH_SYNC_TOKEN=$(whiptail --backtitle "$bt" --passwordbox "The upload token of ioHealth 1.x (SYNC_TOKEN), so a phone set up before accounts keeps syncing (empty: none)" 10 76 3>&1 1>&2 2>&3) || exit 1
+  if [[ -z "${IOHEALTH_ADMIN+x}" ]]; then
+    local an aw
+    an=$(whiptail --backtitle "$bt" --inputbox "First account's user name, used only when the shared account database is still empty (the suite's existing accounts work as they are)" 11 76 "admin" 3>&1 1>&2 2>&3) || exit 1
+    aw=$(whiptail --backtitle "$bt" --passwordbox "Its password (8 characters or more; empty: make the first account from the sign-in screen instead)" 10 72 3>&1 1>&2 2>&3) || exit 1
+    [[ -n "$aw" ]] && IOHEALTH_ADMIN="$an:$aw" || IOHEALTH_ADMIN=""
   fi
   if [[ -z "${IOHEALTH_DATA_OWNER+x}" ]]; then
-    IOHEALTH_DATA_OWNER="$(envval DATA_OWNER)"
-    [[ -n "$IOHEALTH_DATA_OWNER" ]] || IOHEALTH_DATA_OWNER=$(whiptail --backtitle "$bt" --inputbox "The suite account the existing health data belongs to (empty: the first admin)" 9 76 "" 3>&1 1>&2 2>&3) || exit 1
+    IOHEALTH_DATA_OWNER=$(whiptail --backtitle "$bt" --inputbox "Moving from ioHealth 1.x: the account (name) that owns the data already in the database (empty: the first suite admin; a new install can leave it empty)" 11 76 "" 3>&1 1>&2 2>&3) || exit 1
+  fi
+  if [[ -z "${IOHEALTH_SYNC_TOKEN+x}" ]]; then
+    IOHEALTH_SYNC_TOKEN=$(whiptail --backtitle "$bt" --passwordbox "Moving from ioHealth 1.x: its upload token (SYNC_TOKEN), so the phone keeps syncing as that account until it gets an app password (empty: none)" 11 76 3>&1 1>&2 2>&3) || exit 1
   fi
   local hosttz; hosttz="$(cat /etc/timezone 2>/dev/null || timedatectl show -p Timezone --value 2>/dev/null || echo UTC)"
-  IOHEALTH_TZ="${IOHEALTH_TZ:-$(envval TZ)}"
   IOHEALTH_TZ="${IOHEALTH_TZ:-$(whiptail --backtitle "$bt" --inputbox "Time zone for days and weeks" 9 60 "$hosttz" 3>&1 1>&2 2>&3)}" || exit 1
   IOHEALTH_PORT="${IOHEALTH_PORT:-$(whiptail --backtitle "$bt" --inputbox "Port (the phone's uploads and the web app)" 9 60 "47800" 3>&1 1>&2 2>&3)}" || exit 1
   if [[ -z "${IOHEALTH_UNATTENDED:-}" ]]; then
-    whiptail --backtitle "$bt" --yesno "Is the old ioHealth (Docker or 1.x) stopped?\n\nThe first start of 2.0 migrates the database to accounts; the old receiver must not write to it meanwhile. The phone keeps its samples and sends them once the new server answers." 13 72 || { msg_error "Stop the old ioHealth first, then run this again"; exit 1; }
+    whiptail --backtitle "$bt" --yesno "Is the old ioHealth (Docker or 1.x) stopped, or is this a new install?\n\nThe first start of 2.0 migrates a 1.x database to accounts; the old receiver must not write to it meanwhile. The phone keeps its samples and sends them once the new server answers." 13 72 || { msg_error "Stop the old ioHealth first, then run this again"; exit 1; }
   fi
 }
 
