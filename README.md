@@ -200,18 +200,18 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/mai
 ```
 
 creates a small Debian 13 container (2 CPUs, 1 GB, 4 GB disk by default), puts the server in `/opt/iohealth/app` and
-runs its `setup.sh` there. It asks for the health database, the 1.x upload token (`SYNC_TOKEN`, so a phone set up
-before accounts keeps syncing), whose data was there before accounts, the time zone and the port (47800); then the
-framework's own questions (resources, network). The suite's shared account settings (`IOTHING_AUTH_DB_*`,
-`IOTHING_COOKIE_DOMAIN`) are copied from a running ioPix / ioNotes / ioContacts container on the same host when one
-has them in an env file under `/opt`, else asked. The passwords reach `setup.sh` through its environment (a root-only
-file pushed in and removed again), never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`.
-Moving from Docker: copy the container's `.env` to the host and run it with `IOHEALTH_ENV_FILE=/root/iohealth.env` in
-front; what that file holds is not asked again. Stop the old receiver first: it must not write while the database is
-migrated (the phone keeps its samples until the new address answers). The MariaDB users must be allowed to connect
-from the container's address. For unattended runs set `IOHEALTH_DB` and `IOHEALTH_AUTH_DB` (`host:port/db:user:password`),
-`IOHEALTH_SYNC_TOKEN`, `IOHEALTH_DATA_OWNER`, `IOHEALTH_TZ`, `IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN`, `IOHEALTH_ADMIN`
-(`name:password`) and `IOHEALTH_UNATTENDED=1`. `update` inside the container (or "Update now" in the web app) runs
+runs its `setup.sh` there. It asks, as the other apps' scripts do, for the MariaDB host, port, database, user and
+password of the health data, the same for the suite's shared account database (the one ioPix, ioNotes and ioContacts
+use), the cookie domain, the first account (only used when that database is still empty), and, when moving from
+1.x, the account that owns the existing data and the old upload token (`SYNC_TOKEN`, so a phone set up before
+accounts keeps syncing); then the time zone and the port (47800), after the framework's own questions (resources,
+network). The passwords reach `setup.sh` through its environment (a root-only file pushed in and removed again),
+never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`. Stop the old receiver first: it
+must not write while the database is migrated (the phone keeps its samples until the new address answers). The
+MariaDB users must be allowed to connect from the container's address. For unattended runs `IOHEALTH_DB` and
+`IOHEALTH_AUTH_DB` (`host:port/db:user:password`), `IOHEALTH_SYNC_TOKEN`, `IOHEALTH_DATA_OWNER`, `IOHEALTH_TZ`,
+`IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN`, `IOHEALTH_ADMIN` (`name:password`) and `IOHEALTH_UNATTENDED=1` in the
+environment answer the questions in advance. `update` inside the container (or "Update now" in the web app) runs
 `update.sh`.
 
 ### Standalone: any Linux or Mac
