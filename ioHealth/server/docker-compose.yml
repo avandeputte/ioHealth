@@ -1,0 +1,16 @@
+# ioHealth server: the iPhone app uploads over HTTP(S) to port 47800 and everything is written to your MariaDB
+# server; the web app is on the same port (http://localhost:47800/). Accounts are the ioThing suite's shared ones.
+# Put the settings in .env (copy .env.example), then: docker compose up -d
+# For HTTPS, put it behind your reverse proxy (see README.md), or set TLS_CERT_FILE/TLS_KEY_FILE and mount the files.
+services:
+  iohealth:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "47800:47800"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:47800/v1/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s

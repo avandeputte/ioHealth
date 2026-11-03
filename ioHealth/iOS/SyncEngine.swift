@@ -19,7 +19,7 @@ final class SyncEngine: ObservableObject {
     @Published var autoSync = UserDefaults.standard.object(forKey: "autoSync") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoSync, forKey: "autoSync") }
     }
-    /// The receiver's base URL, e.g. https://health.example.com or http://192.168.1.10:47800.
+    /// The server's base URL, e.g. https://health.example.com or http://192.168.1.10:47800.
     @Published var serverAddress: String = UserDefaults.standard.string(forKey: "serverAddress") ?? "" {
         didSet { UserDefaults.standard.set(serverAddress, forKey: "serverAddress") }
     }
@@ -104,7 +104,7 @@ final class SyncEngine: ObservableObject {
                     Task { @MainActor in self?.currentType = label }
                 }, emit: { [weak self] message in
                     if let deadline, Date() > deadline { throw SyncError.outOfTime }
-                    // The receiver ignores per-type markers, and each would otherwise cost an upload at the next checkpoint.
+                    // The server ignores per-type markers, and each would otherwise cost an upload at the next checkpoint.
                     if case .typeDone = message { return }
                     try await upload.send(message)
                     if upload.sent % 2_000 == 0 { let n = upload.sent; await MainActor.run { self?.sentCount = n } }
