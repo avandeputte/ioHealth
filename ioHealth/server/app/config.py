@@ -26,13 +26,6 @@ DB_NAME = env("DB_NAME", "health")
 os.environ.setdefault("IOTHING_AUTH_DB_HOST", DB_HOST)
 os.environ.setdefault("IOTHING_AUTH_DB_PORT", str(DB_PORT))
 
-# Who owns the data that was uploaded before ioHealth had accounts, and whom SYNC_TOKEN uploads for: an account
-# name; empty means the first suite admin.
-DATA_OWNER = env("DATA_OWNER")
-# The single upload token of ioHealth 1.x. Still accepted, for the DATA_OWNER account, so a phone set up before
-# accounts keeps syncing; new phones use an app password of their own account.
-SYNC_TOKEN = env("SYNC_TOKEN")
-
 LISTEN_ADDR = env("LISTEN_ADDR", ":47800")
 TLS_CERT_FILE = env("TLS_CERT_FILE")
 TLS_KEY_FILE = env("TLS_KEY_FILE")

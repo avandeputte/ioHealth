@@ -2562,7 +2562,7 @@ pages.maintenance = async (main) => {
       auto, out),
     card('Database',
       row('Health data', `${m.database.host}:${m.database.port}/${m.database.name}, schema version ${m.database.schemaVersion}. ${fmtCompact(m.database.tables.samples)} samples of ${m.database.types} types; ${fmtCompact(m.database.tables.workouts)} workouts, ${fmtCompact(m.database.tables.workout_route_points)} route points, ${fmtCompact(m.database.tables.heartbeats)} heartbeats, ${fmtCompact(m.database.tables.activity_summaries)} days of rings.`),
-      row('Accounts', `The ioThing suite’s shared auth database: ${m.auth.host}/${m.auth.name}. ${m.dataOwner ? `Data from before accounts belongs to ${m.dataOwner} (DATA_OWNER).` : 'Data from before accounts belongs to the first suite admin.'} ${m.syncToken ? 'The 1.x SYNC_TOKEN is still accepted for that account; remove it once the phone has an app password.' : ''}`),
+      row('Accounts', `The ioThing suite’s shared auth database: ${m.auth.host}/${m.auth.name}.`),
       row('Hourly rollup', `Charts over months or years read sample_hourly (${fmtCompact(m.database.tables.sample_hourly)} rows) instead of every sample. ${m.rollup.ready.length} of ${m.rollup.total} types are rolled up${m.rollup.ready.length < m.rollup.total ? '; the rest is being filled in the background, one type and month at a time' : ''}.`),
       h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Table'), h('th', { class: 'r' }, 'Rows'))),
         h('tbody', {}, tables.map(([t, n]) => h('tr', {}, h('td', {}, t), h('td', { class: 'r num' }, fmtCompact(n)))))))),
@@ -2761,7 +2761,7 @@ async function accountCard() {
       h('button', { onclick: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } }, 'Sign out everywhere else'),
       h('button', { onclick: signOut }, 'Sign out')),
     h('h3', {}, 'iPhone app'),
-    h('p', { class: 'small', style: { marginTop: 0 } }, 'The ioHealth app on your iPhone uploads with an app password of its own: make one here, paste it into the app’s Token field with this server’s address, and the data it sends is yours. Revoke it if the phone is lost.'),
+    h('p', { class: 'small', style: { marginTop: 0 } }, 'A password for one device or script, revocable on its own: use it in place of your password with this server’s address (the iPhone app takes it in its Password field too), and what it sends is yours.'),
     who ? h('p', { class: 'small error' }, who) : h('div', { class: 'toolbar' }, label, h('button', { class: 'primary', onclick: async () => {
       try {
         const r = await authApi('api/auth/app-passwords', { method: 'POST', body: { label: label.value || 'iPhone' } });

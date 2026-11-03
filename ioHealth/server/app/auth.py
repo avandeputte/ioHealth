@@ -8,50 +8,14 @@ Roles: a viewer sees their own data; an editor can also upload it (the iPhone ap
 app password); an admin can also manage the accounts and the sign-in settings.
 """
 import logging
-import time
 
 from fastapi import HTTPException, Request
-from iothing_auth import users as shared
 from iothing_auth.fastapi import Auth
-
-from app import config
 
 APP = "iohealth"
 log = logging.getLogger("app.auth")
 
 auth = Auth(APP, app_label="ioHealth")
-
-_owner = {"id": None, "at": 0.0}
-
-
-def data_owner_id() -> int:
-    """The account that owns the data from before accounts and uploads with SYNC_TOKEN: DATA_OWNER by name, else
-    the first suite admin (lowest id). 0 when there is none."""
-    if _owner["id"] and time.time() - _owner["at"] < 60:
-        return _owner["id"]
-    uid = 0
-    if config.DATA_OWNER:
-        u = shared.find(config.DATA_OWNER)
-        if not u:
-            raise RuntimeError(f"DATA_OWNER={config.DATA_OWNER}: there is no such account in the auth database")
-        uid = u["id"]
-    else:
-        admins = [u["id"] for u in shared.list_users() if u.get("suiteAdmin")]
-        uid = min(admins) if admins else 0
-    _owner.update(id=uid, at=time.time())
-    return uid
-
-
-def sync_token_user(request: Request):
-    """The data owner, for a request carrying the old SYNC_TOKEN as its bearer token."""
-    import hmac
-    h = request.headers.get("authorization", "")
-    if not config.SYNC_TOKEN or not h.lower().startswith("bearer "):
-        return None
-    if not hmac.compare_digest(h[7:].strip().encode(), config.SYNC_TOKEN.encode()):
-        return None
-    uid = data_owner_id()
-    return shared.get(uid, APP) if uid else None
 
 
 def me(request: Request) -> dict:

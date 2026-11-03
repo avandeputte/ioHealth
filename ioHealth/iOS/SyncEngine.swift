@@ -23,9 +23,13 @@ final class SyncEngine: ObservableObject {
     @Published var serverAddress: String = UserDefaults.standard.string(forKey: "serverAddress") ?? "" {
         didSet { UserDefaults.standard.set(serverAddress, forKey: "serverAddress") }
     }
-    /// Kept in the Keychain, not UserDefaults.
-    @Published var token: String = TokenStore.token {
-        didSet { TokenStore.token = token.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// The account: the same user name and password as in the web app (and ioPix, ioNotes, ioContacts). The
+    /// password is kept in the Keychain, not UserDefaults.
+    @Published var userName: String = UserDefaults.standard.string(forKey: "userName") ?? "" {
+        didSet { UserDefaults.standard.set(userName, forKey: "userName") }
+    }
+    @Published var password: String = CredentialStore.password {
+        didSet { CredentialStore.password = password }
     }
     @Published private(set) var lastSynced: Date? = UserDefaults.standard.object(forKey: "lastSynced") as? Date
     @Published private(set) var lastTrigger: Trigger? = UserDefaults.standard.string(forKey: "lastTrigger").flatMap(Trigger.init)
@@ -47,7 +51,7 @@ final class SyncEngine: ObservableObject {
     }
 
     var server: SyncClient.Server? {
-        SyncClient.Server(address: serverAddress, token: token.trimmingCharacters(in: .whitespacesAndNewlines))
+        SyncClient.Server(address: serverAddress, user: userName.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
     }
 
     /// Whether a sync has somewhere to go.

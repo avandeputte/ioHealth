@@ -26,9 +26,12 @@ struct ContentView: View {
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                         .textContentType(.URL)
-                    SecureField("App password", text: $engine.token)
+                    TextField("User name", text: $engine.userName)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .textContentType(.username)
+                    SecureField("Password", text: $engine.password)
+                        .textContentType(.password)
                     Button("Sync now") {
                         Task { await engine.syncNow(trigger: .manual, deadline: nil) }
                     }
@@ -41,7 +44,7 @@ struct ContentView: View {
                 } header: {
                     Text("Server")
                 } footer: {
-                    Text("The ioHealth server's address, e.g. https://health.example.com behind your reverse proxy, or http://192.168.1.10:47800 on your own network (plain http only works for local addresses). The app password is made in the web app (Settings › Account › App passwords) for your own account, and is kept in the iPhone's Keychain.")
+                    Text("The ioHealth server's address, e.g. https://health.example.com behind your reverse proxy, or http://192.168.1.10:47800 on your own network (plain http only works for local addresses). Sign in with your own account, the same user name and password as in the web app and the other io apps; the password is kept in the iPhone's Keychain. The account must be an editor in ioHealth.")
                 }
 
                 Section {
@@ -103,7 +106,7 @@ struct ContentView: View {
         connectionCheck = "Checking…"
         do {
             let version = try await SyncClient.check(server)
-            connectionCheck = "Reached the server (schema version \(version)). The app password is checked when you sync."
+            connectionCheck = "Reached the server (schema version \(version)). Your user name and password are checked when you sync."
         } catch {
             connectionCheck = "Couldn't reach \(server.baseURL.absoluteString): \(error.localizedDescription)"
         }

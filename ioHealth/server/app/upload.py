@@ -1,4 +1,4 @@
-"""The upload API the iPhone app uses, unchanged from ioHealth 1.x except that each upload belongs to an account:
+"""The upload API the iPhone app uses; each upload belongs to an account:
 
   GET  /v1/health                       no sign-in: {"ok", "schemaVersion"}, for the phone's Test and the healthcheck
   POST /v1/sessions                     {"deviceName","systemVersion","fullResync"} -> {"sessionId"}
@@ -6,7 +6,7 @@
   POST /v1/sessions/{id}/finish         {"totalSent"} -> {"received"}: the account's rows in the database
 
 The phone signs in with `Authorization: Bearer <app password>` (an app password of an editor account, made under
-Settings › Account in the web app), or the old SYNC_TOKEN, which uploads for the data owner. A batch is applied in
+Settings › Account in the web app). A batch is applied in
 one transaction together with its sequence number, so a batch resent after a lost reply is acknowledged without
 being applied twice. The line shapes mirror Shared/SyncProtocol.swift.
 """

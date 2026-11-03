@@ -59,8 +59,6 @@ installs write; `setup.sh` asks for the important ones); never commit real value
 | `IOTHING_AUTH_DB_NAME`, `IOTHING_AUTH_DB_USER`, `IOTHING_AUTH_DB_PASSWORD` | yes | the shared account database (default name `auth`) and a user that may create tables in it |
 | `IOTHING_COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
 | `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty account database (or create it from the sign-in screen instead) |
-| `DATA_OWNER` | upgrade | whose data was in the database before accounts, as an account name; default: the first suite admin. Only matters once, when upgrading from 1.x |
-| `SYNC_TOKEN` | upgrade | the single upload token of 1.x: still accepted, for the `DATA_OWNER` account, so a phone set up before accounts keeps syncing. New phones use an app password; remove it to retire it |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
 | `TZ` | no | fallback time zone (e.g. `Europe/Brussels`) for days and weeks; the browser sends its own, so this only matters for API calls without `tz` |
 | `MAP_TILE_URL`, `MAP_TILE_ATTRIBUTION` | no | map tiles for routes, default OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) |
@@ -100,9 +98,6 @@ services:
       # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
       # ADMIN_USER: alex                     # the first account, on an empty auth database
       # ADMIN_PASSWORD: change-me-please
-      # --- Upgrading from 1.x: whose data is already in the database, and the phone's old token ---
-      # DATA_OWNER: alex                # default: the first suite admin
-      # SYNC_TOKEN: the-old-token       # still accepted for the DATA_OWNER account; new phones use an app password
       # --- Optional ---
       TZ: Europe/Brussels             # fallback time zone for days and weeks; the browser normally sends its own
       # MAP_TILE_URL: https://tile.openstreetmap.org/{z}/{x}/{y}.png   # map tiles for workout routes
@@ -128,13 +123,6 @@ curl http://localhost:47800/v1/health        # {"ok":true,"schemaVersion":9}
 
 Then open `http://localhost:47800/` and sign in (or, on an empty account database, create the first admin right
 there). Update later with `docker compose pull && docker compose up -d`.
-
-**Upgrading from 1.x** (the Go receiver, schema 8): the tables are kept and get a `user_id` column; every row that is
-already there becomes the `DATA_OWNER` account's, so create that account first (`ADMIN_USER`/`ADMIN_PASSWORD`, or an
-account that ioPix or ioNotes already made) or the server refuses to start until it knows whose data it is. `SYNC_TOKEN`
-keeps working for that account, so the phone keeps syncing until you give it an app password. `WEB_PASSWORD` is gone:
-the web app uses the accounts. The columns are added in place (`ALGORITHM=INSTANT`), so the upgrade takes seconds
-even with years of data and is fine on a Galera cluster.
 
 <details>
 <summary>Keeping the secrets in a <code>.env</code> file instead</summary>
@@ -166,8 +154,6 @@ IOTHING_AUTH_DB_PASSWORD=change-me
 # IOTHING_COOKIE_DOMAIN=example.com
 # ADMIN_USER=alex
 # ADMIN_PASSWORD=change-me-please
-# DATA_OWNER=alex
-# SYNC_TOKEN=the-old-token
 # TZ=Europe/Brussels
 # MAP_TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
 # LISTEN_ADDR=:47800
@@ -202,16 +188,11 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/mai
 creates a small Debian 13 container (2 CPUs, 1 GB, 4 GB disk by default), puts the server in `/opt/iohealth/app` and
 runs its `setup.sh` there. It asks, as the other apps' scripts do, for the MariaDB host, port, database, user and
 password of the health data, the same for the suite's shared account database (the one ioPix, ioNotes and ioContacts
-use), the cookie domain, the first account (only used when that database is still empty), and, when moving from
-1.x, the account that owns the existing data and the old upload token (`SYNC_TOKEN`, so a phone set up before
-accounts keeps syncing); then the time zone and the port (47800), after the framework's own questions (resources,
-network). The passwords reach `setup.sh` through its environment (a root-only file pushed in and removed again),
-never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`. Stop the old receiver first: it
-must not write while the database is migrated (the phone keeps its samples until the new address answers). The
-MariaDB users must be allowed to connect from the container's address. For unattended runs `IOHEALTH_DB` and
-`IOHEALTH_AUTH_DB` (`host:port/db:user:password`), `IOHEALTH_SYNC_TOKEN`, `IOHEALTH_DATA_OWNER`, `IOHEALTH_TZ`,
-`IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN`, `IOHEALTH_ADMIN` (`name:password`) and `IOHEALTH_UNATTENDED=1` in the
-environment answer the questions in advance. `update` inside the container (or "Update now" in the web app) runs
+use), the cookie domain, the first account (only used when that database is still empty), the time zone and the
+port (47800), after the framework's own questions (resources, network). The passwords reach `setup.sh` through its environment (a root-only file pushed in and removed again),
+never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`. The MariaDB users must be allowed to connect from the container's address. For unattended runs `IOHEALTH_DB` and
+`IOHEALTH_AUTH_DB` (`host:port/db:user:password`), `IOHEALTH_TZ`, `IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN` and
+`IOHEALTH_ADMIN` (`name:password`) in the environment answer the questions in advance. `update` inside the container (or "Update now" in the web app) runs
 `update.sh`.
 
 ### Standalone: any Linux or Mac
@@ -223,11 +204,10 @@ git clone https://github.com/avandeputte/ioHealth && cd ioHealth/ioHealth/server
 ./update.sh         # later: the latest code, same settings
 ```
 
-`setup.sh` takes flags instead of questions (`--db`, `--auth-db`, `--data-owner`, `--tz`, `--port`,
-`--cookie-domain`, `--admin`, `--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_AUTH_DB`, `IOHEALTH_ADMIN`
-and `IOHEALTH_SYNC_TOKEN` in the environment), writes `.env` (readable by the owner only), makes `.venv` (Python 3.11
-or later), installs the `iohealth` systemd service and waits until it answers (on a 1.x database the first start
-migrates it to accounts first). Without the service, `./run.sh` starts it in the foreground from the same `.env`; a
+`setup.sh` takes flags instead of questions (`--db`, `--auth-db`, `--tz`, `--port`, `--cookie-domain`, `--admin`,
+`--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_AUTH_DB` and `IOHEALTH_ADMIN` in the environment),
+writes `.env` (readable by the owner only), makes `.venv` (Python 3.11 or later), installs the `iohealth` systemd
+service and waits until it answers. Without the service, `./run.sh` starts it in the foreground from the same `.env`; a
 launchd job `net.iothing.iohealth.server` on a Mac can run that script, and "Update now" in the web app restarts
 either. `python -m pytest tests` (after `pip install -e ".[test]"`) runs the tests against a real MariaDB
 (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`, `health`/`health`; it makes and drops
@@ -286,9 +266,9 @@ environment, which wins: `AUTH_PROXY` (`cloudflare`, `haproxy`, `nginx`, `caddy`
 `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED` (the addresses the proxy connects from), `AUTH_PROXY_CREATE` (`viewer`
 or `editor` to create an account for someone new, `deny` for a "No access" page), and for Cloudflare Access
 `CF_ACCESS_TEAM` and `CF_ACCESS_AUD` (the signed token Cloudflare adds to every request is checked against your
-team's keys). The header is believed only from the proxy's own addresses. The iPhone's uploads carry an app password
-instead, so for a server behind Cloudflare Access the upload paths (`/v1/`) need a bypass rule or a Cloudflare
-service token.
+team's keys). The header is believed only from the proxy's own addresses. The iPhone's uploads carry the account's own
+user name and password instead, so for a server behind Cloudflare Access the upload paths (`/v1/`) need a bypass
+rule or a Cloudflare service token.
 
 ## 2. Build and install the iPhone app
 
@@ -311,9 +291,8 @@ destination, and run.
 1. On the iPhone, open **ioHealth**, tap **Allow access to Health data**, and on Apple's permission screen turn
    everything on. (What you actually sync is chosen separately in step 3, without asking again.)
 2. Under **Server**, enter the server's URL (`https://health.example.com`, or `http://192.168.1.10:47800` at home)
-   and an **app password** for your account: in the web app, Settings › Account › App passwords › New, named
-   "iPhone" say; it's shown once, and kept in the iPhone's Keychain. (A phone set up before accounts keeps its old
-   `SYNC_TOKEN` until you replace it.) **Test connection** checks the address; the app password is checked at the first sync.
+   and your **user name and password**, the same as for the web app and the other io apps (the password is kept in
+   the iPhone's Keychain). **Test connection** checks the address; the account is checked at the first sync.
 3. Optionally open **Data types** and switch off what you don't want: types are grouped, searchable, and marked when
    the phone has no data for them.
 4. Tap **Sync now**. A decade of Apple Watch data (a few million samples) takes a few minutes; keep the app open for
@@ -327,9 +306,9 @@ while the phone is unlocked) plus an occasional background-refresh slot. The ser
 moment; a missed or cut-short round costs nothing, because anchors only advance for batches the server has
 acknowledged.
 
-The account the app password belongs to must be an **editor** (or admin) in ioHealth; a viewer can look but not
-upload. Everyone in the household gets their own account and their own app password, and the phones upload side by
-side into the same database, each row tagged with its owner.
+The account the phone signs in with must be an **editor** (or admin) in ioHealth; a viewer can look but not upload.
+Everyone in the household gets their own account, and the phones upload side by side into the same database, each
+row tagged with its owner.
 
 ## 4. The web app
 
@@ -354,11 +333,11 @@ its health data. A *suite admin* is admin in every app.
 |---|---|
 | not signed in | nothing but the sign-in screen (there is no shared data to look at) |
 | **viewer** | see their own data, and their own settings, goals and app passwords |
-| **editor** | plus upload: the iPhone app signs in with an app password of an editor |
+| **editor** | plus upload: the iPhone app signs in as an editor |
 | **admin** | plus accounts (Settings › Users: add people, their role here, make someone a suite admin) and the sign-in settings |
 
-Settings › Account is where you change your password, make **app passwords** for the iPhone (one per phone, shown
-once, revocable), and sign out everywhere. Sessions are random tokens in an HttpOnly cookie (`iothing_session`, shared
+Settings › Account is where you change your password, make **app passwords** (a per-device password for the API or
+a script, shown once, revocable; the iPhone app can use one in place of your password) and sign out everywhere. Sessions are random tokens in an HttpOnly cookie (`iothing_session`, shared
 by the apps on the domain) valid for 30 days and renewed while in use; passwords are scrypt-hashed; wrong passwords
 cost a growing wait.
 
@@ -374,7 +353,7 @@ cost a growing wait.
 | **Glucose** | blood glucose from a CGM or meter: average, GMI (estimated A1c), time in/below/above range, variability (CV), low episodes; readings with your target band and optional overlays (heart rate, steps, carbohydrates, insulin, workouts…); the daily pattern (ambulatory glucose profile) and time in range per day; **glucose around workouts and meals**: the average change from an hour before to three hours after, per activity or per meal size (from logged carbohydrates), and each event's numbers. A workout's own page shows its glucose curve too. mg/dL or mmol/L and the target range are set in Settings |
 | **Correlations** | pick two metrics and a period: a scatter plot of the days (click a dot for that day), the correlation, how much one explains the other and the best-fit line, same day or "the day before" (sleep, workouts or carbs, then the next day's glucose). Includes glucose time in range and variability per day and workout minutes. A table ranks what else goes with the second metric |
 | **Records** | fastest running efforts from the GPS routes, best days, health bests, ring streaks, and bests per activity |
-| **Settings** | in tabs, as in ioPix. *Display*: km or miles, light/dark theme, and which pages and metrics to show (turn off Sleep, Glucose or any metric you don't use and it disappears from the menu, the dashboard, Metrics and Records). *Health*: glucose unit and target range, maximum heart rate (default 220 − age from your date of birth), your profile. *Goals and alerts*: **goals** (any metric, at least or at most: 10,000 steps a day, weight at most 75 kg, 7.5 h of sleep…) and the thresholds for dashboard alerts. *Account*: password, app passwords for the iPhone, sign out everywhere. *Users* and *Sign-in at the proxy* for admins |
+| **Settings** | in tabs, as in ioPix. *Display*: km or miles, light/dark theme, and which pages and metrics to show (turn off Sleep, Glucose or any metric you don't use and it disappears from the menu, the dashboard, Metrics and Records). *Health*: glucose unit and target range, maximum heart rate (default 220 − age from your date of birth), your profile. *Goals and alerts*: **goals** (any metric, at least or at most: 10,000 steps a day, weight at most 75 kg, 7.5 h of sleep…) and the thresholds for dashboard alerts. *Account*: password, app passwords, sign out everywhere. *Users* and *Sign-in at the proxy* for admins |
 | **Maintenance** | admins: the installed version and commit with Check for updates / Update now and the daily check; the databases, schema version and table sizes, how far the hourly rollup has got, and the last upload of every account |
 
 **Export.** The ⤓ CSV buttons download what a chart or table shows (Metrics, Day, glucose readings and responses,
@@ -453,8 +432,8 @@ GROUP BY night, stage ORDER BY night DESC;
 
 ## API
 
-Every `/v1` call except `/v1/health` needs `Authorization: Bearer <app password>` of an editor or admin account
-(or the 1.x `SYNC_TOKEN`, which stands for the `DATA_OWNER` account); what is sent becomes that account's. Errors
+Every `/v1` call except `/v1/health` needs the account's `Authorization: Basic <user:password>` (what the iPhone app
+sends) or `Bearer <app password>`, of an editor or admin; what is sent becomes that account's. Errors
 are JSON `{"error": "…"}` with 400, 401, 403, 404 or 413.
 
 | request | body | reply |
