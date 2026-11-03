@@ -79,7 +79,7 @@ enum HealthTypes {
     /// The name a type is stored under on the server: the HealthKit identifier without its prefix, in snake_case
     /// ("HKQuantityTypeIdentifierHeartRate" -> "heart_rate", "...VO2Max" -> "vo2_max", "...HeartRateVariabilitySDNN" ->
     /// "heart_rate_variability_sdnn"). Anchors and settings keep using the HealthKit identifier.
-    /// receiver/typenames.go implements the same rule for rows stored before this existed.
+    /// server/app/db.py (storage_name) implements the same rule for rows stored before this existed.
     static func storageName(_ identifier: String) -> String {
         var name = identifier
         for prefix in ["HKQuantityTypeIdentifier", "HKCategoryTypeIdentifier", "HKCharacteristicTypeIdentifier",

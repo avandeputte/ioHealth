@@ -3,35 +3,40 @@
 Copies your Apple Health data, all of it or just the types you pick, into your own MariaDB database, and gives you a
 fitness web app on top of it: dashboards, charts of any metric (stacked or overlaid), workouts with their GPS routes on
 a map, sleep, training load and personal records. Nothing goes through a cloud service: an iPhone app uploads straight
-to a small receiver that you run in Docker, over HTTPS behind your reverse proxy (or plain HTTP on your own network).
-The same container serves the web app.
+to a small server that you run in Docker, over HTTPS behind your reverse proxy (or plain HTTP on your own network).
+The same container serves the web app. Accounts are the ioThing suite's shared ones (the same as
+[ioPix](https://github.com/avandeputte/iopix), [ioNotes](https://github.com/avandeputte/ionotes) and
+[ioContacts](https://github.com/avandeputte/iocontacts)): every person in the household signs in with their own name
+and sees only their own health data.
 
 Health data only exists on the iPhone (on macOS, `HKHealthStore.isHealthDataAvailable()` is always `false`), which is
 why there are two parts:
 
 ```
 ┌──────────────┐   HTTPS (REST, gzip NDJSON)   ┌───────────────┐        ┌──────────┐
-│   ioHealth   │ ────────────────────────────▶ │ reverse proxy │ ─────▶ │ receiver │ ──▶ MariaDB
+│   ioHealth   │ ────────────────────────────▶ │ reverse proxy │ ─────▶ │  server  │ ──▶ MariaDB (health + auth)
 │  (iPhone)    │                               │ (TLS)         │  HTTP  │ (Docker) │
 └──────────────┘                               └───────────────┘        └──────────┘
 ```
 
 | path | what |
 |---|---|
-| `ioHealth/receiver/` | Go service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`web/`) |
+| `ioHealth/server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iothing-auth](https://github.com/avandeputte/iothing-auth) library, like ioPix, ioNotes and ioContacts |
 | `ioHealth/iOS/` | the iPhone app |
 | `ioHealth/Shared/` | the upload line format (`SyncProtocol.swift`) shared by the apps |
 | `ioHealth/Mac/`, `ioHealth/ExportImporter/` | legacy macOS tools (a SQLite receiver the phone no longer talks to, and an importer for the Health app's `export.zip`) |
 | `ioHealth/project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec that generates the Xcode project |
-| `.github/workflows/receiver-image.yml` | builds and publishes the receiver image |
+| `.github/workflows/receiver-image.yml` | runs the server's tests and builds and publishes its image |
 
-## 1. Run the receiver (Docker)
+## 1. Run the server (Docker)
 
-The receiver is published as `ghcr.io/avandeputte/iohealth` (public, `linux/amd64` and `linux/arm64`). Versions up to
+The server is published as `ghcr.io/avandeputte/iohealth` (public, `linux/amd64` and `linux/arm64`). Versions up to
 1.1.1 were published as `ghcr.io/avandeputte/healthexport-receiver`; to upgrade, change the `image:` line and pull.
-Tags: `latest` (current `main`), `1.0.0` and other release versions, and one tag per branch while it's being worked on.
-It needs an existing MariaDB (or MySQL) server; it creates the database if the user may, and creates and migrates its
-own tables.
+Tags: `latest` (current `main`), `2.0.0` and other release versions, and one tag per branch while it's being worked on.
+It needs an existing MariaDB (or MySQL) server with two databases on it: one for the health data (created if the user
+may; tables are created and migrated at every start) and the ioThing suite's shared **auth** database, which holds the
+accounts for every app in the suite (also created at start; if ioPix, ioNotes or ioContacts already runs, point
+ioHealth at the same one and the accounts are there already).
 
 ### Configuration
 
@@ -44,83 +49,99 @@ real values.
 | `DB_PORT` | no | default `3306` |
 | `DB_USER`, `DB_PASSWORD` | yes | a user that may create tables in `DB_NAME` (and the database itself, ideally) |
 | `DB_NAME` | no | default `health` |
-| `SYNC_TOKEN` | yes | the bearer token the phone must send; make one with `openssl rand -hex 32` |
+| `IOTHING_AUTH_DB_HOST`, `IOTHING_AUTH_DB_PORT` | no | the server with the suite's shared account database; default: the same as `DB_HOST` / `DB_PORT` |
+| `IOTHING_AUTH_DB_NAME`, `IOTHING_AUTH_DB_USER`, `IOTHING_AUTH_DB_PASSWORD` | yes | the shared account database (default name `auth`) and a user that may create tables in it |
+| `IOTHING_COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
+| `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty account database (or create it from the sign-in screen instead) |
+| `DATA_OWNER` | upgrade | whose data was in the database before accounts, as an account name; default: the first suite admin. Only matters once, when upgrading from 1.x |
+| `SYNC_TOKEN` | upgrade | the single upload token of 1.x: still accepted, for the `DATA_OWNER` account, so a phone set up before accounts keeps syncing. New phones use an app password; remove it to retire it |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
-| `WEB_PASSWORD` | recommended | password for the web app; without it the web app (and its read-only API) has no login, so only leave it out on a network you trust |
 | `TZ` | no | fallback time zone (e.g. `Europe/Brussels`) for days and weeks; the browser sends its own, so this only matters for API calls without `tz` |
 | `MAP_TILE_URL`, `MAP_TILE_ATTRIBUTION` | no | map tiles for routes, default OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) |
-| `LISTEN_ADDR` | no | address the receiver listens on inside the container, default `:47800` |
+| `LISTEN_ADDR` | no | address the server listens on inside the container, default `:47800` |
+| `AUTH_PROXY`… | no | sign-in at a reverse proxy or Cloudflare Access, see [HTTPS](#https) below |
 
 The container listens on port **47800**, for both the phone's uploads (`/v1/…`) and the web app (`/`).
 
 ### With Docker Compose (recommended)
 
-Save this as `docker-compose.yml`, fill in the values, and run `docker compose up -d`. Every option the receiver
-understands is listed (the same file is in the repo as `ioHealth/receiver/docker-compose.ghcr.yml`):
+Save this as `docker-compose.yml`, fill in the values, and run `docker compose up -d`. Every option the server
+understands is listed (the same file is in the repo as `ioHealth/server/docker-compose.ghcr.yml`):
 
 ```yaml
 services:
-  receiver:
-    image: ghcr.io/avandeputte/iohealth:latest   # or a version such as 1.0.0
-    container_name: health-receiver
+  iohealth:
+    image: ghcr.io/avandeputte/iohealth:latest   # or a version such as 2.0.0
+    container_name: iohealth
     restart: unless-stopped
     ports:
       - "47800:47800"                 # host:container; change the host side if 47800 is taken
     environment:
-      # --- MariaDB / MySQL (required) ---
+      # --- The health data: MariaDB / MySQL (required) ---
       DB_HOST: 192.168.1.10           # host name or IP of the database server
       DB_PORT: "3306"
       DB_USER: health
       DB_PASSWORD: change-me
       DB_NAME: health                 # created on first start if the user may; tables are always created/migrated
-      # --- Phone authentication (required) ---
-      SYNC_TOKEN: change-me-to-a-long-random-string   # at least 16 characters; openssl rand -hex 32
-      # --- Web app (optional) ---
-      WEB_PASSWORD: change-me-too     # password for the web app on the same port; unset = no login (LAN only!)
+      # --- The accounts: the ioThing suite's shared auth database, as in ioPix, ioNotes and ioContacts ---
+      # IOTHING_AUTH_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
+      IOTHING_AUTH_DB_NAME: auth
+      IOTHING_AUTH_DB_USER: auth
+      IOTHING_AUTH_DB_PASSWORD: change-me
+      # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
+      # ADMIN_USER: alex                     # the first account, on an empty auth database
+      # ADMIN_PASSWORD: change-me-please
+      # --- Upgrading from 1.x: whose data is already in the database, and the phone's old token ---
+      # DATA_OWNER: alex                # default: the first suite admin
+      # SYNC_TOKEN: the-old-token       # still accepted for the DATA_OWNER account; new phones use an app password
+      # --- Optional ---
       TZ: Europe/Brussels             # fallback time zone for days and weeks; the browser normally sends its own
       # MAP_TILE_URL: https://tile.openstreetmap.org/{z}/{x}/{y}.png   # map tiles for workout routes
       # MAP_TILE_ATTRIBUTION: "&copy; OpenStreetMap contributors"
-      # --- Optional ---
-      LISTEN_ADDR: ":47800"           # address:port inside the container
+      # LISTEN_ADDR: ":47800"           # address:port inside the container
+      # sign-in at Cloudflare Access (see HTTPS below): AUTH_PROXY: cloudflare, CF_ACCESS_TEAM, CF_ACCESS_AUD
       # Serve HTTPS directly instead of behind a reverse proxy: set both and mount the files below.
       # TLS_CERT_FILE: /certs/fullchain.pem
       # TLS_KEY_FILE: /certs/privkey.pem
     # volumes:
     #   - /path/to/certs:/certs:ro
     healthcheck:
-      test: ["CMD", "/receiver", "healthcheck"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:47800/v1/health', timeout=4)"]
       interval: 30s
       timeout: 5s
-      retries: 3
+      start_period: 30s
 ```
 
 ```sh
 docker compose up -d
-curl http://localhost:47800/v1/health        # {"ok":true,"schemaVersion":8}
+curl http://localhost:47800/v1/health        # {"ok":true,"schemaVersion":9}
 ```
 
-Update later with `docker compose pull && docker compose up -d`.
+Then open `http://localhost:47800/` and sign in (or, on an empty account database, create the first admin right
+there). Update later with `docker compose pull && docker compose up -d`.
+
+**Upgrading from 1.x** (the Go receiver, schema 8): the tables are kept and get a `user_id` column; every row that is
+already there becomes the `DATA_OWNER` account's, so create that account first (`ADMIN_USER`/`ADMIN_PASSWORD`, or an
+account that ioPix or ioNotes already made) or the server refuses to start until it knows whose data it is. `SYNC_TOKEN`
+keeps working for that account, so the phone keeps syncing until you give it an app password. `WEB_PASSWORD` is gone:
+the web app uses the accounts. The columns are added in place (`ALGORITHM=INSTANT`), so the upgrade takes seconds
+even with years of data and is fine on a Galera cluster.
 
 <details>
 <summary>Keeping the secrets in a <code>.env</code> file instead</summary>
 
-If you'd rather not have the password and token inside the compose file, replace the `environment:` block with
-`env_file: .env` and put the settings in a `.env` next to it (`ioHealth/receiver/.env.example` is a template):
+If you'd rather not have the passwords inside the compose file, replace the `environment:` block with
+`env_file: .env` and put the settings in a `.env` next to it (`ioHealth/server/.env.example` is a template):
 
 ```yaml
 services:
-  receiver:
+  iohealth:
     image: ghcr.io/avandeputte/iohealth:latest
-    container_name: health-receiver
+    container_name: iohealth
     restart: unless-stopped
     ports:
       - "47800:47800"
     env_file: .env
-    healthcheck:
-      test: ["CMD", "/receiver", "healthcheck"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 ```
 
 ```dotenv
@@ -130,8 +151,14 @@ DB_PORT=3306
 DB_USER=health
 DB_PASSWORD=change-me
 DB_NAME=health
-SYNC_TOKEN=change-me-to-a-long-random-string
-WEB_PASSWORD=change-me-too
+IOTHING_AUTH_DB_NAME=auth
+IOTHING_AUTH_DB_USER=auth
+IOTHING_AUTH_DB_PASSWORD=change-me
+# IOTHING_COOKIE_DOMAIN=example.com
+# ADMIN_USER=alex
+# ADMIN_PASSWORD=change-me-please
+# DATA_OWNER=alex
+# SYNC_TOKEN=the-old-token
 # TZ=Europe/Brussels
 # MAP_TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
 # LISTEN_ADDR=:47800
@@ -143,19 +170,23 @@ WEB_PASSWORD=change-me-too
 ### With plain `docker run`
 
 ```sh
-docker run -d --name health-receiver --restart unless-stopped -p 47800:47800 \
+docker run -d --name iohealth --restart unless-stopped -p 47800:47800 \
   -e DB_HOST=192.168.1.10 -e DB_USER=health -e DB_PASSWORD=change-me -e DB_NAME=health \
-  -e SYNC_TOKEN=change-me-to-a-long-random-string -e WEB_PASSWORD=change-me-too \
+  -e IOTHING_AUTH_DB_NAME=auth -e IOTHING_AUTH_DB_USER=auth -e IOTHING_AUTH_DB_PASSWORD=change-me \
   ghcr.io/avandeputte/iohealth:latest
-docker logs -f health-receiver
+docker logs -f iohealth
 ```
 
 (or `--env-file .env` instead of the `-e` flags, with the `.env` shown above.)
 
 ### Building it yourself
 
-From a clone, `cd ioHealth/receiver && docker compose up -d` builds the image locally instead of pulling it
-(`docker-compose.yml` has `build: .`). `go test ./...` runs the receiver's tests.
+From a clone, `cd ioHealth/server && docker compose up -d` builds the image locally instead of pulling it
+(`docker-compose.yml` has `build: .`). Without Docker: `pip install -e ".[test]"` in `ioHealth/server` (Python 3.12
+or later), the settings in the environment or a `.env` there, and `python -m app`. `python -m pytest tests` runs the
+tests against a real MariaDB (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`,
+`health`/`health`; it makes and drops databases of its own, `health_test`, `auth_test_iohealth` and
+`health_mig_test`, so the user needs `CREATE` and `DROP`).
 
 ### HTTPS
 
@@ -180,14 +211,26 @@ server {
     location / {
         proxy_pass http://192.168.1.10:47800;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;   # marks the web app's login cookie Secure
+        proxy_set_header X-Forwarded-Proto $scheme;   # marks the session cookie Secure
     }
 }
 ```
 
 Traefik: route the host to port 47800 and raise the body limit if you use the buffering middleware. If the proxy runs
-in the same Docker network, use `receiver:47800` as the upstream. The phone allows plain `http://` only to local
+in the same Docker network, use `iohealth:47800` as the upstream. The phone allows plain `http://` only to local
 network addresses; anything else must be `https://`.
+
+When the proxy already makes people sign in (Cloudflare Access, Authelia, oauth2-proxy…), ioHealth takes that sign-in,
+exactly as the other apps in the suite do: the proxy passes who signed in in a header, and ioHealth treats that person
+as signed in when an account exists for them (matched on the account's email address, then its name). Set it up once
+for the whole suite in Settings › Sign-in at the proxy (it's kept in the shared account database), or in the
+environment, which wins: `AUTH_PROXY` (`cloudflare`, `haproxy`, `nginx`, `caddy`, `traefik` or `header`),
+`AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED` (the addresses the proxy connects from), `AUTH_PROXY_CREATE` (`viewer`
+or `editor` to create an account for someone new, `deny` for a "No access" page), and for Cloudflare Access
+`CF_ACCESS_TEAM` and `CF_ACCESS_AUD` (the signed token Cloudflare adds to every request is checked against your
+team's keys). The header is believed only from the proxy's own addresses. The iPhone's uploads carry an app password
+instead, so for a server behind Cloudflare Access the upload paths (`/v1/`) need a bypass rule or a Cloudflare
+service token.
 
 ## 2. Build and install the iPhone app
 
@@ -209,9 +252,10 @@ destination, and run.
 
 1. On the iPhone, open **ioHealth**, tap **Allow access to Health data**, and on Apple's permission screen turn
    everything on. (What you actually sync is chosen separately in step 3, without asking again.)
-2. Under **Server**, enter the receiver's URL (`https://health.example.com`, or `http://192.168.1.10:47800` at home)
-   and the token (`SYNC_TOKEN` from the receiver's `.env`; it's kept in the iPhone's Keychain). **Test connection**
-   checks the address.
+2. Under **Server**, enter the server's URL (`https://health.example.com`, or `http://192.168.1.10:47800` at home)
+   and an **app password** for your account: in the web app, Settings › Account › App passwords › New, named
+   "iPhone" say; it's shown once, and kept in the iPhone's Keychain. (A phone set up before accounts keeps its old
+   `SYNC_TOKEN` until you replace it.) **Test connection** checks the address; the app password is checked at the first sync.
 3. Optionally open **Data types** and switch off what you don't want: types are grouped, searchable, and marked when
    the phone has no data for them.
 4. Tap **Sync now**. A decade of Apple Watch data (a few million samples) takes a few minutes; keep the app open for
@@ -221,15 +265,38 @@ Later syncs only send what's new or changed. Turn on **Send everything again** w
 
 **Automatic syncing.** With "Sync automatically" on (the default), the phone syncs as soon as the app is opened, and
 iOS also wakes it in the background when new Health data arrives (HealthKit background delivery, roughly hourly, only
-while the phone is unlocked) plus an occasional background-refresh slot. The receiver has to be reachable at that
+while the phone is unlocked) plus an occasional background-refresh slot. The server has to be reachable at that
 moment; a missed or cut-short round costs nothing, because anchors only advance for batches the server has
 acknowledged.
 
+The account the app password belongs to must be an **editor** (or admin) in ioHealth; a viewer can look but not
+upload. Everyone in the household gets their own account and their own app password, and the phones upload side by
+side into the same database, each row tagged with its owner.
+
 ## 4. The web app
 
-The fitness web app is built into the receiver. Open the receiver's address in a browser (`https://health.example.com` or `http://192.168.1.10:47800`) and sign in
-with `WEB_PASSWORD` (the session lasts 30 days; changing the password or `SYNC_TOKEN` signs everyone out). It reads the
-database only, and shows new data as soon as a sync finishes.
+The fitness web app is built into the server. Open the server's address in a browser (`https://health.example.com`
+or `http://192.168.1.10:47800`) and sign in: the sign-in screen is the suite's, with a tile per account (an account
+without a password signs in with one click, on the home network only). It shows only the signed-in person's data, and
+shows new data as soon as a sync finishes.
+
+**Accounts** are the ioThing suite's shared accounts ([iothing-auth](https://github.com/avandeputte/iothing-auth): one
+MariaDB database shared with ioPix, ioNotes and ioContacts), so one name, password and session serve every app, and
+someone signed in at `photos.example.com` is signed in at `health.example.com` too when the apps share a domain
+(`IOTHING_COOKIE_DOMAIN`). What is ioHealth's own is kept per app: the role an account holds here, its settings and
+its health data. A *suite admin* is admin in every app.
+
+| who | can |
+|---|---|
+| not signed in | nothing but the sign-in screen (there is no shared data to look at) |
+| **viewer** | see their own data, and their own settings, goals and app passwords |
+| **editor** | plus upload: the iPhone app signs in with an app password of an editor |
+| **admin** | plus accounts (Settings › Users: add people, their role here, make someone a suite admin) and the sign-in settings |
+
+Settings › Account is where you change your password, make **app passwords** for the iPhone (one per phone, shown
+once, revocable), and sign out everywhere. Sessions are random tokens in an HttpOnly cookie (`iothing_session`, shared
+by the apps on the domain) valid for 30 days and renewed while in use; passwords are scrypt-hashed; wrong passwords
+cost a growing wait.
 
 | page | what's on it |
 |---|---|
@@ -255,17 +322,19 @@ icon, opening full-screen like an app (Android: Chrome's menu → Install app). 
 How the numbers are made: days and weeks (Monday to Sunday) follow the browser's time zone. Totals such as steps come
 from the source that counted the most in each period, so an iPhone and a Watch counting the same steps aren't added
 together. A night of sleep is everything from 18:00 to 18:00 the next day, taken from the app that recorded the most
-sleep that night. Settings are stored in the database (`web_settings`), so they follow you to every browser.
+sleep that night. Settings are stored in the database (`web_settings`, per account), so they follow you to every browser.
 
 The web app's data comes from a JSON API under `/api/` (`types`, `series`, `workouts`, `workouts/{uuid}`, `routes`,
-`sleep`, `glucose`, `activity`, `profile`, `records`, `records/efforts`, `status`, and `settings`, which also takes `PUT`), which also accepts the `SYNC_TOKEN` as a bearer
-token, for scripts. Map tiles load from OpenStreetMap in the browser; everything else (including the chart and map
+`sleep`, `glucose`, `activity`, `profile`, `records`, `records/efforts`, `status`, and `settings`, which also takes `PUT`), which also accepts an app password as
+a bearer token, for scripts (`Authorization: Bearer iohealth-…`); it answers with that account's data. Map tiles load from OpenStreetMap in the browser; everything else (including the chart and map
 libraries, [uPlot](https://github.com/leeoniya/uPlot) and [Leaflet](https://leafletjs.com)) is served by the
 container.
 
 ## What you get
 
-All tables are InnoDB/utf8mb4 with timestamps in UTC as `DATETIME(3)`:
+All tables are InnoDB/utf8mb4 with timestamps in UTC as `DATETIME(3)`, and every data row has a `user_id`: the
+account it belongs to (its id in the shared account database's `users` table). `SELECT … WHERE user_id = 1` is one
+person; the examples below are for everyone at once.
 
 | table | contents |
 |---|---|
@@ -276,25 +345,25 @@ All tables are InnoDB/utf8mb4 with timestamps in UTC as `DATETIME(3)`:
 | `activity_summaries` | daily Move / Exercise / Stand rings and goals |
 | `characteristics` | date of birth, biological sex, blood type, skin type, wheelchair use |
 | `sample_hourly`, `sample_hourly_ready` | every type summed per UTC hour and source (sum, count, min, max), so charts and records over months or years read thousands of rows instead of millions; kept current by each sync |
-| `web_settings` | ioHealth's settings |
+| `web_settings` | ioHealth's settings, per account |
 | `deleted_objects`, `sync_log`, `schema_version` | bookkeeping |
 
-Every data table also has `inserted_at` (when the receiver first stored the row) and `updated_at` (when its values last
+Every data table also has `inserted_at` (when the server first stored the row) and `updated_at` (when its values last
 changed; equal to `inserted_at` until then), both UTC. Resending unchanged data touches neither. The lap, pause and
 multisport rows of a workout are rewritten whenever the workout is resent, so theirs restart then. Rows written
-before these columns existed (receiver schema versions below 5) have `NULL`.
+before these columns existed (schema versions below 5) have `NULL`.
 
-When the receiver first starts on schema 8 it fills `sample_hourly` for existing data in the background, one type and
-one month per transaction (small enough for a Galera cluster to replicate comfortably); charts read `samples` directly
-until each type is done, and the log says when it has finished.
+When the server first starts on schema 8 or later it fills `sample_hourly` for existing data in the background, one
+type and one month per transaction (small enough for a Galera cluster to replicate comfortably); charts read `samples`
+directly until each type is done, and the log says when it has finished. Schema 9 (ioHealth 2.0) adds `user_id`.
 
 Two views report how long samples take to arrive (`inserted_at` minus the sample's `end_date`, in minutes, which
 includes the Watch-to-iPhone hop): `sample_delay_by_type` (per type: count, min/avg/max delay, latest sample, latest
 arrival) and `sample_delay_by_day` (the same per type and per day of arrival, UTC).
 
 Type names are the HealthKit identifier without its prefix, in snake_case (`HKQuantityTypeIdentifierHeartRateVariabilitySDNN`
-→ `heart_rate_variability_sdnn`); the phone and the receiver share the rule (`HealthTypes.storageName`,
-`receiver/typenames.go`). Units are your Health app's preferred units (kg or lb, km or mi…) where Apple exposes them,
+→ `heart_rate_variability_sdnn`); the phone and the server share the rule (`HealthTypes.storageName`,
+`server/app/db.py`'s `storage_name`). Units are your Health app's preferred units (kg or lb, km or mi…) where Apple exposes them,
 otherwise metric; the `unit` column always says which.
 
 ```sql
@@ -318,8 +387,9 @@ GROUP BY night, stage ORDER BY night DESC;
 
 ## API
 
-Every `/v1` call except `/v1/health` needs `Authorization: Bearer <SYNC_TOKEN>`; errors are JSON `{"error": "…"}`
-with 400, 401, 404 or 413.
+Every `/v1` call except `/v1/health` needs `Authorization: Bearer <app password>` of an editor or admin account
+(or the 1.x `SYNC_TOKEN`, which stands for the `DATA_OWNER` account); what is sent becomes that account's. Errors
+are JSON `{"error": "…"}` with 400, 401, 403, 404 or 413.
 
 | request | body | reply |
 |---|---|---|

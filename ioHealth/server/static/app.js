@@ -57,7 +57,7 @@ function saveSettings() {
 async function loadSettings() {
   try {
     const r = await fetch('api/settings', { credentials: 'same-origin' });
-    if (r.status === 401) { location.href = 'login.html'; return; }
+    if (r.status === 401) { signIn(true); return; }
     const stored = await r.json();
     if (Object.keys(stored).length) Object.assign(settings, stored);
     else saveSettings(); // first run: keep what this browser had
@@ -87,9 +87,9 @@ async function api(path, params = {}, { cache = true } = {}) {
   }
   inflight++;
   const promise = fetch(url, { credentials: 'same-origin' }).then(async r => {
-    if (r.status === 401) { location.href = 'login.html'; throw new Error('not signed in'); }
+    if (r.status === 401) { signIn(true); throw new Error('not signed in'); }
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body.error || r.statusText);
+    if (!r.ok) throw new Error(body.error || body.detail || r.statusText);
     return body;
   }).finally(() => { inflight--; });
   apiCache.set(url, { at: Date.now(), promise });
@@ -667,9 +667,9 @@ pages.dashboard = async (main) => {
     const after = [...alertList.children].find(c => +c.dataset.rank > +el.dataset.rank);
     alertList.insertBefore(el, after || null);
   };
-  main.append(h('div', { class: 'row spread' }, h('h1', {}, 'Dashboard'), h('a', { href: '#/day', class: 'small' }, 'Today in detail →')), alertsCard,
+  main.append(...[h('div', { class: 'row spread' }, h('h1', {}, 'Dashboard'), h('a', { href: '#/day', class: 'small' }, 'Today in detail →')), alertsCard,
     top.children.length ? top : null, glucoseCard, h('div', { style: { height: '16px' } }), kpis,
-    show.workouts ? h('div', { class: 'grid cols-2' }, workoutsCard, weeklyCard) : null);
+    show.workouts ? h('div', { class: 'grid cols-2' }, workoutsCard, weeklyCard) : null].filter(Boolean));
 
   // Rings: today big, the week small.
   if (show.activity) api('activity', { from: daysAgo(6), to: today() }).then(days => {
@@ -2350,13 +2350,281 @@ pages.settings = async (main) => {
           settings.hiddenSections = [...set]; saveSettings(); typeListPromise = null; applySections();
         } }), h('b', {}, label), h('span', { class: 'muted small' }, what)))),
     metricsCard,
-    card('About', h('p', { class: 'small muted' }, 'Settings are saved in the database, so every browser sees the same ones. Health data is only read, never changed. ',
-      h('a', { href: 'logout' }, 'Sign out'))));
+    await accountCard(),
+    ...(isAdmin() ? [await usersCard(), await proxyCard()] : []),
+    card('About', h('p', { class: 'small muted' }, 'Settings are saved with your account, so every browser sees the same ones. Health data is only read, never changed.')));
 };
+
+// ---------- accounts: sign-in, the account menu, Settings › Account / Users / Sign-in at the proxy ----------
+// The same flow as iopix (and ionotes, ioContacts): accounts live in the ioThing suite's shared auth database, so
+// one sign-in serves every app on the domain. Health data is private: nothing shows until someone signs in.
+
+let me = { user: null, usersExist: false, isAdmin: false };
+const isAdmin = () => !!me.isAdmin;
+
+async function authApi(path, { method = 'GET', body } = {}) {
+  const r = await fetch(path, { method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || data.detail || r.statusText);
+  return data;
+}
+
+async function loadMe() {
+  try { me = await authApi('api/auth/me'); } catch { me = { user: null, usersExist: false, isAdmin: false }; }
+  return me;
+}
+
+/** A dialog: a scrim and a card; buttons are [{label, primary, danger, action}] (action returning false keeps it open).
+ *  required: nothing of the app shows behind it and it can't be dismissed. Resolves with the button's value. */
+function dialog(title, body, buttons, { required = false, head = null } = {}) {
+  return new Promise(resolve => {
+    const scrim = h('div', { class: 'scrim' + (required ? ' required' : '') });
+    const close = v => { scrim.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey = e => { if (e.key === 'Escape' && !required) close(null); };
+    const acts = h('div', { class: 'acts' }, buttons.filter(Boolean).map(b => h('button', {
+      class: (b.primary ? 'primary' : '') + (b.danger ? ' danger' : ''),
+      onclick: async () => { if (b.action) { if (await b.action() === false) return; } close(b.value ?? b.label); } }, b.label)));
+    scrim.append(h('div', { class: 'dialog' }, head, h('h2', {}, title), body, acts));
+    if (!required) scrim.addEventListener('click', e => { if (e.target === scrim) close(null); });
+    document.addEventListener('keydown', onKey);
+    document.body.append(scrim);
+    const first = scrim.querySelector('input:not([hidden]), button');
+    if (first) first.focus();
+  });
+}
+
+function toast(text, ms = 3000) {
+  const t = h('div', { class: 'toast' }, text);
+  document.body.append(t);
+  setTimeout(() => t.remove(), ms);
+}
+
+const avatar = (a, big = false) => h('span', { class: 'avatar' + (big ? ' big' : '') }, ((a && (a.displayName || a.name)) || '?')[0].toUpperCase());
+
+/** The brand above the sign-in's title, as in iopix: the logo and the name. */
+const signinBrand = () => h('div', { class: 'signin-brand' }, h('img', { class: 'logo', src: 'apple-touch-icon.png', alt: '' }),
+  h('span', { class: 'brand-name' }, h('span', { class: 'io' }, 'io'), h('span', { class: 'nm' }, 'Health')));
+
+let signingIn = false;
+/** iopix's sign-in: a tile per account (one click for an account without a password, a password for the others),
+ *  "Other" to type a name. required: ioHealth shows nothing else until someone signs in (no Cancel, no closing). */
+async function signIn(required = false) {
+  if (signingIn) return;
+  signingIn = true;
+  try {
+    if (!me.usersExist) return await firstAdmin();
+    const name = h('input', { type: 'text', placeholder: 'User name', autocomplete: 'username' });
+    const pw = h('input', { type: 'password', placeholder: 'Password', autocomplete: 'current-password' });
+    const form = h('div', { class: 'signin-form' }, name, pw);
+    const msg = h('p', { class: 'error small' });
+    const tiles = h('div', { class: 'accounts' });
+    const login = async body => {
+      try { await authApi('api/auth/login', { method: 'POST', body }); location.reload(); return true; } catch (e) { msg.textContent = e.message; return false; }
+    };
+    const submit = () => login({ name: name.value.trim(), password: pw.value });
+    for (const i of [name, pw]) i.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') submit(); });
+    authApi('api/auth/accounts').then(d => {
+      if (!d.accounts.length) { name.focus(); return; }
+      form.hidden = true;
+      tiles.append(...d.accounts.map(a => h('button', { type: 'button', class: 'account', 'data-n': a.name, title: a.passwordless ? `Sign in as ${a.name}` : `${a.name} (password)`,
+        onclick: () => {
+          if (a.passwordless) { login({ name: a.name }); return; }
+          name.value = a.name; form.hidden = false;
+          for (const t of tiles.querySelectorAll('.account')) t.classList.toggle('on', t.dataset.n === a.name);
+          pw.focus();
+        } }, avatar(a, true), h('span', { class: 'nm' }, a.name), a.passwordless ? null : h('span', { class: 'muted tiny' }, 'password'))),
+        h('button', { type: 'button', class: 'account', title: 'Type a user name', onclick: () => {
+          form.hidden = false; name.value = ''; for (const t of tiles.querySelectorAll('.account')) t.classList.remove('on'); name.focus();
+        } }, h('span', { class: 'avatar big other' }, '…'), h('span', { class: 'nm' }, 'Other')));
+    }).catch(() => name.focus());
+    return await dialog('Sign in', h('div', {}, tiles, form, msg, h('p', { class: 'muted small' }, 'Sign in to see your health data. Each account sees its own.')),
+      [required ? null : { label: 'Cancel', value: null }, { label: 'Sign in', primary: true, action: submit }], { required, head: signinBrand() });
+  } finally { signingIn = false; }
+}
+
+async function firstAdmin() {
+  const name = h('input', { type: 'text', placeholder: 'Admin user name', autocomplete: 'username' });
+  const pw = h('input', { type: 'password', placeholder: 'Password (8 characters or more)', autocomplete: 'new-password' });
+  const msg = h('p', { class: 'error small' });
+  return dialog('Create the admin account', h('div', {}, h('p', { class: 'muted' }, 'No accounts yet. The first account is the suite admin (admin in ioHealth and the other ioThing apps); the health data already in the database becomes its own. Create it from inside your network.'),
+    h('div', { class: 'signin-form' }, name, pw), msg), [
+    { label: 'Create', primary: true, action: async () => {
+      try { await authApi('api/auth/setup', { method: 'POST', body: { name: name.value.trim(), password: pw.value } }); location.reload(); } catch (e) { msg.textContent = e.message; return false; }
+    } }], { required: true, head: signinBrand() });
+}
+
+async function changePassword() {
+  const cur = h('input', { type: 'password', placeholder: 'Current password', autocomplete: 'current-password' });
+  const pw = h('input', { type: 'password', placeholder: 'New password (8 characters or more)', autocomplete: 'new-password' });
+  const msg = h('p', { class: 'error small' });
+  await dialog('Change your password', h('div', {}, cur, pw, msg), [{ label: 'Cancel' }, { label: 'Change', primary: true, action: async () => {
+    try { await authApi('api/auth/password', { method: 'POST', body: { current: cur.value, password: pw.value } }); toast('Password changed; your other sessions are signed out'); }
+    catch (e) { msg.textContent = e.message; return false; }
+  } }]);
+}
+
+async function signOut() {
+  try {
+    const r = await authApi('api/auth/logout', { method: 'POST' });
+    if (r && r.cloudflareLogout) { location.href = r.cloudflareLogout; return; }
+  } catch (e) { toast(e.message); }
+  location.reload();
+}
+
+function menu(anchor, items) {
+  const el = h('div', { class: 'menu' });
+  const close = () => { el.remove(); document.removeEventListener('click', onDoc, true); };
+  const onDoc = e => { if (!el.contains(e.target)) close(); };
+  for (const it of items) {
+    if (!it) continue;
+    if (it === '-') { el.append(h('hr')); continue; }
+    if (it.head) { el.append(h('div', { class: 'head' }, it.head)); continue; }
+    el.append(h('button', { type: 'button', onclick: () => { close(); it.action(); } }, it.label));
+  }
+  const r = anchor.getBoundingClientRect();
+  el.style.top = (r.bottom + 6) + 'px';
+  el.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+  document.body.append(el);
+  setTimeout(() => document.addEventListener('click', onDoc, true));
+}
+
+function renderUserMenu() {
+  const el = $('#usermenu');
+  if (!el) return;
+  el.textContent = '';
+  if (!me.user) {
+    el.append(h('button', { class: 'small-btn', onclick: () => signIn(false) }, me.usersExist ? 'Sign in' : 'Set up'));
+    return;
+  }
+  const btn = h('button', { class: 'avatar-btn', title: me.user.name, 'aria-label': 'Account', onclick: () => menu(btn, [
+    { head: `${me.user.name} · ${me.user.role}${me.signedInBy === 'cloudflare' ? ' · via Cloudflare' : ''}` },
+    { label: 'Settings', action: () => { location.hash = '#/settings'; } },
+    me.user.passwordless ? null : { label: 'Change password', action: changePassword },
+    { label: 'Sign out everywhere', action: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } },
+    '-',
+    { label: 'Sign out', action: signOut },
+  ]) }, avatar(me.user));
+  el.append(btn);
+}
+
+// ---- Settings › Account: the account, its app passwords (the iPhone app signs in with one), its sessions
+
+function copyRow(text) {
+  const inp = h('input', { type: 'text', value: text, readonly: true, style: { flex: 1, minWidth: '240px', fontFamily: 'ui-monospace, monospace' }, onclick: e => e.target.select() });
+  return h('div', { class: 'toolbar', style: { marginBottom: '6px' } }, inp, h('button', { onclick: async () => {
+    try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { inp.select(); }
+  } }, 'Copy'));
+}
+
+async function accountCard() {
+  const u = me.user;
+  const list = h('div');
+  const shown = h('div');
+  const label = h('input', { type: 'text', placeholder: 'e.g. Alex’s iPhone', value: /iPhone/.test(navigator.userAgent) ? 'iPhone' : '' });
+  const draw = async () => {
+    const d = await authApi('api/auth/app-passwords').catch(() => ({ items: [] }));
+    list.replaceChildren(d.items.length ? h('table', { class: 'grid', style: { width: '100%' } },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Device'), h('th', {}, 'Made'), h('th', {}, 'Last used'), h('th', {}, ''))),
+      h('tbody', {}, d.items.map(p => h('tr', {}, h('td', {}, p.label), h('td', { class: 'small muted' }, fmtDate(p.created)),
+        h('td', { class: 'small muted' }, p.lastUsed ? fmtAgo(p.lastUsed) : 'never'),
+        h('td', { style: { textAlign: 'right' } }, h('button', { class: 'small-btn', onclick: async () => {
+          if (!await dialog('Revoke app password', h('p', {}, `Revoke “${p.label}”? That device stops syncing until it gets a new one.`), [{ label: 'Cancel', value: null }, { label: 'Revoke', danger: true, value: true }])) return;
+          await authApi(`api/auth/app-passwords/${p.id}`, { method: 'DELETE' }); draw();
+        } }, 'Revoke'))))))
+      : h('p', { class: 'small muted' }, 'No app passwords yet.'));
+  };
+  draw();
+  const who = u.passwordless ? 'This account signs in with one click, so it cannot have app passwords; an admin can give it a password under Users.'
+    : u.role === 'viewer' ? 'This account is a viewer: it can look at its data but not upload any. An admin can make it an editor under Users.' : '';
+  return card('Account',
+    h('div', { class: 'toolbar' }, avatar(u, true), h('div', {}, h('b', {}, u.displayName || u.name), h('div', { class: 'small muted' }, `${u.name} · ${u.role}${u.suiteAdmin ? ' · suite admin' : ''}${u.email ? ' · ' + u.email : ''}`)),
+      u.passwordless || me.viaProxy ? null : h('button', { onclick: changePassword }, 'Change password'),
+      h('button', { onclick: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } }, 'Sign out everywhere else'),
+      h('button', { onclick: signOut }, 'Sign out')),
+    h('h3', {}, 'iPhone app'),
+    h('p', { class: 'small', style: { marginTop: 0 } }, 'The ioHealth app on your iPhone uploads with an app password of its own: make one here, paste it into the app’s Token field with this server’s address, and the data it sends is yours. Revoke it if the phone is lost.'),
+    who ? h('p', { class: 'small error' }, who) : h('div', { class: 'toolbar' }, label, h('button', { class: 'primary', onclick: async () => {
+      try {
+        const r = await authApi('api/auth/app-passwords', { method: 'POST', body: { label: label.value || 'iPhone' } });
+        shown.replaceChildren(h('p', { class: 'small' }, h('b', {}, 'Copy it now: '), 'it is shown only once.'), copyRow(r.password));
+        draw();
+      } catch (e) { toast(e.message); }
+    } }, '+ New app password')),
+    shown, list);
+}
+
+// ---- Settings › Users (admins): accounts and their role in ioHealth, as in iopix
+
+async function usersCard() {
+  const body = h('div');
+  const draw = async () => {
+    let d;
+    try { d = await authApi('api/users'); } catch (e) { body.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
+    const name = h('input', { type: 'text', placeholder: 'User name', style: { width: '150px' } });
+    const pw = h('input', { type: 'password', placeholder: 'Password', autocomplete: 'new-password', style: { width: '150px' } });
+    const email = h('input', { type: 'email', placeholder: 'Email (optional)', autocomplete: 'off', style: { width: '200px' } });
+    const role = h('select', {}, d.roles.map(r => h('option', { value: r, selected: r === 'editor' }, r)));
+    const run = async (f, after = draw) => { try { await f(); await after(); } catch (e) { toast(e.message); } };
+    const post = (path, b) => authApi(path, { method: 'POST', body: b });
+    body.replaceChildren(h('table', { class: 'grid', style: { width: '100%' } },
+      h('thead', {}, h('tr', {}, ['Account', 'Email', 'Role', 'Password', 'Sign-in list', 'Last sign-in', ''].map(c => h('th', {}, c)))),
+      h('tbody', {}, d.users.map(u => h('tr', {},
+        h('td', {}, h('span', { class: 'toolbar', style: { margin: 0, gap: '6px' } }, avatar(u), u.name, u.id === me.user.id ? h('span', { class: 'muted small' }, '(you)') : null, u.suiteAdmin ? h('span', { class: 'muted small' }, 'suite admin') : null)),
+        h('td', { class: 'small' }, u.email || h('span', { class: 'muted' }, 'none')),
+        h('td', {}, h('select', { onchange: e => run(() => post(`api/users/${u.id}`, { role: e.target.value })) }, d.roles.map(r => h('option', { value: r, selected: r === u.role }, r)))),
+        h('td', { class: 'small' }, u.passwordless ? h('span', { class: 'muted' }, 'none (one click)') : 'set', ' ',
+          h('button', { class: 'small-btn', onclick: async () => {
+            const inp = h('input', { type: 'password', placeholder: '8 characters or more', autocomplete: 'new-password' });
+            if (await dialog(`New password for ${u.name}`, inp, [{ label: 'Cancel', value: null }, { label: 'Set', primary: true, value: true }]) && inp.value) run(() => post(`api/users/${u.id}`, { password: inp.value }));
+          } }, 'Set')),
+        h('td', { style: { textAlign: 'center' } }, h('input', { type: 'checkbox', checked: u.listed !== false, title: 'Offered on the sign-in screen',
+          onchange: e => run(() => post(`api/users/${u.id}`, { listed: e.target.checked })) })),
+        h('td', { class: 'small muted' }, u.last_login ? fmtDate(u.last_login) : 'never'),
+        h('td', { style: { textAlign: 'right' } }, u.id !== me.user.id ? h('button', { class: 'small-btn', onclick: async () => {
+          if (!await dialog('Delete account', h('p', {}, `Delete ${u.name}? Their health data stays in the database until an admin removes it.`), [{ label: 'Cancel', value: null }, { label: 'Delete', danger: true, value: true }])) return;
+          run(() => post(`api/users/${u.id}`, { delete: true }));
+        } }, 'Delete') : null))))),
+      h('div', { class: 'toolbar', style: { marginTop: '10px' } }, name, email, pw, role, h('button', { class: 'primary', onclick: () => run(async () => {
+        await post('api/users', { name: name.value.trim(), email: email.value.trim(), password: pw.value, role: role.value }); toast(`Added ${name.value.trim()}`);
+      }) }, '+ Add account')));
+  };
+  await draw();
+  return card('Users', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'The ioThing suite’s shared accounts (the same as in ioPix, ioNotes and ioContacts), with each one’s role in ioHealth: a viewer sees their own data, an editor can also upload it from the iPhone app, an admin can also manage accounts. Every account sees only its own health data.'), body);
+}
+
+// ---- Settings › Sign-in at the proxy (admins): Cloudflare Access or another proxy in front
+
+async function proxyCard() {
+  let st;
+  try { st = await authApi('api/auth/proxy'); } catch (e) { return card('Sign-in at the proxy', h('p', { class: 'error' }, e.message)); }
+  const v = st.values, fixed = new Set(st.fromEnv || []);
+  const field = (k, ph) => h('input', { type: 'text', value: v[k] || '', placeholder: ph, disabled: fixed.has(k), 'data-k': k, style: { width: '300px', maxWidth: '100%' } });
+  const sel = (k, opts) => h('select', { 'data-k': k, disabled: fixed.has(k) }, opts.map(([val, l]) => h('option', { value: val, selected: (v[k] || '') === val }, l)));
+  const fields = [sel('AUTH_PROXY', [['off', 'Off'], ['cloudflare', 'Cloudflare Access'], ['haproxy', 'HAProxy'], ['nginx', 'nginx'], ['caddy', 'Caddy'], ['traefik', 'Traefik'], ['header', 'Another proxy']]),
+    field('CF_ACCESS_TEAM', 'myteam.cloudflareaccess.com'), field('CF_ACCESS_AUD', 'the Access application’s AUD tag'),
+    field('AUTH_PROXY_HEADER', 'header(s) with the user (other proxies)'), field('AUTH_PROXY_TRUSTED', '127.0.0.1, ::1 (the proxy’s address)'),
+    sel('AUTH_PROXY_CREATE', [['', 'show the sign-in screen'], ['deny', 'refuse them'], ['viewer', 'make them a viewer account'], ['editor', 'make them an editor account']])];
+  if (!v.AUTH_PROXY) fields[0].value = 'off';
+  const labels = ['Proxy', 'Cloudflare team', 'Cloudflare AUD', 'User header', 'Proxy address', 'Someone with no account'];
+  const seen = st.seen && st.seen.aud ? h('p', { class: 'small' }, `Last Cloudflare Access request: team ${st.seen.iss || '?'}, AUD ${Array.isArray(st.seen.aud) ? st.seen.aud.join(', ') : st.seen.aud}, ${st.seen.email || ''}`) : null;
+  return card('Sign-in at the proxy',
+    h('p', { class: 'small muted', style: { marginTop: 0 } }, 'With Cloudflare Access (a Cloudflare Tunnel with an Access policy) or a proxy with Authelia, Authentik or oauth2-proxy in front, ioHealth takes that sign-in: the person is matched to an account by email, then by name. Saved for the whole suite, as in ioPix. Settings in the container’s environment win.'),
+    ...fields.map((f, i) => h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, labels[i]), f)),
+    seen, fixed.size ? h('p', { class: 'small muted' }, 'Fixed in the environment: ' + [...fixed].join(', ')) : null,
+    h('button', { class: 'primary', onclick: async () => {
+      const body = {};
+      for (const f of fields) if (!f.disabled) body[f.dataset.k] = f.value;
+      try { await authApi('api/auth/proxy', { method: 'POST', body }); toast('Saved'); } catch (e) { toast(e.message); }
+    } }, 'Save'));
+}
 
 // ---------- start ----------
 
-loadSettings().then(() => {
+loadMe().then(async () => {
+  renderUserMenu();
+  if (!me.user) { signIn(true); return; }
+  await loadSettings();
   applyTheme();
   applySections();
   refreshStatus();

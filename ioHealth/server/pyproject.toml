@@ -1,0 +1,30 @@
+# ioHealth server: the Python dependencies. `pip install -e '.[test]'` adds pytest.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iohealth"
+version = "2.0.0"
+description = "Apple Health data from the iPhone in your own MariaDB, with a fitness web app, over the ioThing suite's shared accounts"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# upper bounds: the next major version of each package as installed and tested (the same as iopix and ionotes)
+dependencies = [
+  "fastapi<1",
+  "uvicorn<1",
+  "orjson<4",
+  "pymysql<2",
+  "pyjwt[crypto]<3",   # Cloudflare Access tokens (proxy sign-in)
+  "tzdata",            # the browser's time zone, on an image without zoneinfo
+  "iothing-auth @ git+https://github.com/avandeputte/iothing-auth.git",   # the ioThing suite's shared accounts and sessions
+]
+
+[project.optional-dependencies]
+test = ["pytest<10", "httpx<1", "pyflakes<5"]
+
+[project.urls]
+Homepage = "https://github.com/avandeputte/ioHealth"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

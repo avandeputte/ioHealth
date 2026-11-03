@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// Talks to the receiver's HTTP API (see receiver/README.md): POST /v1/sessions, then numbered gzip-compressed
+/// Talks to the server's HTTP API (see the README's API section): POST /v1/sessions, then numbered gzip-compressed
 /// NDJSON batches to /v1/sessions/{id}/items, then /v1/sessions/{id}/finish. Each batch is committed on the server
 /// before it answers, so whatever was acknowledged is safely stored.
 enum SyncClient {
@@ -137,7 +137,7 @@ enum SyncError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .badReply: return "The server sent an unexpected reply. Is the address right?"
-        case .unauthorized: return "The server rejected the token. Check it matches SYNC_TOKEN on the server."
+        case .unauthorized: return "The server rejected the app password. Make a new one in the web app (Settings › Account › App passwords) and paste it here."
         case .server(let code, let message), .retryable(let code, let message):
             return "The server answered \(code)\(message.isEmpty ? "" : ": \(message)")."
         case .outOfTime: return "iOS ended the background window before the sync finished."

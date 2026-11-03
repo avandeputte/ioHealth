@@ -26,7 +26,7 @@ struct ContentView: View {
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                         .textContentType(.URL)
-                    SecureField("Token", text: $engine.token)
+                    SecureField("App password", text: $engine.token)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button("Sync now") {
@@ -41,7 +41,7 @@ struct ContentView: View {
                 } header: {
                     Text("Server")
                 } footer: {
-                    Text("The ioHealth server's address, e.g. https://health.example.com behind your reverse proxy, or http://192.168.1.10:47800 on your own network (plain http only works for local addresses). The token is SYNC_TOKEN from the receiver's .env and is kept in the iPhone's Keychain.")
+                    Text("The ioHealth server's address, e.g. https://health.example.com behind your reverse proxy, or http://192.168.1.10:47800 on your own network (plain http only works for local addresses). The app password is made in the web app (Settings › Account › App passwords) for your own account, and is kept in the iPhone's Keychain.")
                 }
 
                 Section {
@@ -74,7 +74,7 @@ struct ContentView: View {
                         LabeledContent("Data types", value: "\(enabledTypes) of \(TypeSelection.allIDs.count) on")
                     }
                 } footer: {
-                    Text("Pick what gets synced. Switching a type off stops sending it; what was already sent stays on the receiver.")
+                    Text("Pick what gets synced. Switching a type off stops sending it; what was already sent stays on the server.")
                 }
 
                 Section {
@@ -103,7 +103,7 @@ struct ContentView: View {
         connectionCheck = "Checking…"
         do {
             let version = try await SyncClient.check(server)
-            connectionCheck = "Reached the receiver (schema version \(version)). The token is checked when you sync."
+            connectionCheck = "Reached the server (schema version \(version)). The app password is checked when you sync."
         } catch {
             connectionCheck = "Couldn't reach \(server.baseURL.absoluteString): \(error.localizedDescription)"
         }
