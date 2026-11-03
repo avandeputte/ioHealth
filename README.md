@@ -191,6 +191,29 @@ runs the tests against a real MariaDB (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`
 `health`/`health`; it makes and drops databases of its own, `health_test`, `auth_test_iohealth` and
 `health_mig_test`, so the user needs `CREATE` and `DROP`).
 
+`./setup.sh` in `ioHealth/server` does the rest of a Linux install in one go, as ioContacts' and ioNotes' do: it asks
+for the databases (or takes `--db`, `--auth-db`, `--data-owner`, `--tz`, `--port`, `--cookie-domain`, `--yes`),
+writes `.env`, makes `.venv`, installs the `iohealth` systemd service and waits until it answers (on a 1.x database
+the first start migrates it to accounts first).
+
+### In a Proxmox LXC
+
+As ioPix, ioNotes and ioContacts: on the Proxmox host, as root,
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/ioHealth/server/proxmox/ct/iohealth.sh)"
+```
+
+creates a Debian container (community-scripts framework), puts the server in `/opt/iohealth/app` and runs `setup.sh`
+there. It asks for the health database, the 1.x upload token (`SYNC_TOKEN`, so a phone set up before accounts keeps
+syncing), whose data was there before accounts, the time zone and the port (47800). The suite's shared account
+settings (`IOTHING_AUTH_DB_*`, `IOTHING_COOKIE_DOMAIN`) are copied from a running ioPix / ioNotes / ioContacts
+container on the same host when one has them in an env file under `/opt`, else asked. Moving from Docker: copy the
+container's `.env` to the host and run it with `IOHEALTH_ENV_FILE=/root/iohealth.env` in front; what that file holds
+is not asked again. Stop the old receiver first: it must not write while the database is migrated (the phone keeps
+its samples until the new address answers). The MariaDB users must be allowed to connect from the container's
+address. `update` inside the container (or "Update now" in the web app) runs `update.sh`.
+
 ### Updating
 
 - **Docker:** `docker compose pull && docker compose up -d`.

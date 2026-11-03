@@ -73,7 +73,7 @@ else
   tar xzf "$TMP/src.tgz" -C "$TMP"
   SRC="$(ls -d "$TMP"/*/ | head -1)$SUBDIR"
   STAGE="$APP/.update-stage"; rm -rf "${STAGE:?}"; mkdir -p "$STAGE"
-  for item in app static pyproject.toml run.sh update.sh; do
+  for item in app static pyproject.toml run.sh update.sh setup.sh; do
     [ -e "$SRC/$item" ] && cp -R "$SRC/$item" "$STAGE/$item"
   done
   [ -d "$STAGE/app" ] && [ -d "$STAGE/static" ] && [ -f "$STAGE/pyproject.toml" ] || { rm -rf "${STAGE:?}"; die "the downloaded tarball looks incomplete"; }
@@ -95,7 +95,7 @@ if [ -n "$GITROOT" ]; then
 else
   MOVED=""
   swap_back() { for item in $MOVED; do rm -rf "${APP:?}/${item:?}"; [ -e "$APP/$item.old" ] && mv "$APP/$item.old" "$APP/$item"; done; rm -rf "${STAGE:?}"; }
-  for item in app static pyproject.toml run.sh update.sh; do
+  for item in app static pyproject.toml run.sh update.sh setup.sh; do
     [ -e "$STAGE/$item" ] || continue
     rm -rf "${APP:?}/${item:?}.old"
     if [ -e "$APP/$item" ]; then mv "$APP/$item" "$APP/$item.old" || { swap_back; die "could not set $item aside; the previous files are back in place"; }; fi
@@ -106,7 +106,7 @@ else
   rm -rf "${STAGE:?}"
   echo "$R" > COMMIT
 fi
-chmod 755 update.sh run.sh 2>/dev/null || true
+chmod 755 update.sh run.sh setup.sh 2>/dev/null || true
 pipi --no-deps -e . 2>/dev/null || echo "  note: the package metadata could not be refreshed (pip install -e .); ioHealth runs regardless"
 
 NEWV="$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' app/__init__.py)"
