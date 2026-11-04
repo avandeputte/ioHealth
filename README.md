@@ -55,8 +55,8 @@ installs write; `setup.sh` asks for the important ones); never commit real value
 | `DB_PORT` | no | default `3306` |
 | `DB_USER`, `DB_PASSWORD` | yes | a user that may create tables in `DB_NAME` (and the database itself, ideally) |
 | `DB_NAME` | no | default `health` |
-| `IOTHING_AUTH_DB_HOST`, `IOTHING_AUTH_DB_PORT` | no | the server with the suite's shared account database; default: the same as `DB_HOST` / `DB_PORT` |
-| `IOTHING_AUTH_DB_NAME`, `IOTHING_AUTH_DB_USER`, `IOTHING_AUTH_DB_PASSWORD` | yes | the shared account database (default name `auth`) and a user that may create tables in it |
+| `IOSUITE_SHARED_DB_HOST`, `IOSUITE_SHARED_DB_PORT` | no | the server with the Shared ioSuite database; default: the same as `DB_HOST` / `DB_PORT` |
+| `IOSUITE_SHARED_DB_NAME`, `IOSUITE_SHARED_DB_USER`, `IOSUITE_SHARED_DB_PASSWORD` | yes | the Shared ioSuite database (accounts, sessions, roles, suite-wide settings and the list of apps; default name and user `iosuite`; the older `IOTHING_AUTH_DB_*` names still work) and a user that may create tables in it |
 | `IOTHING_COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
 | `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty account database (or create it from the sign-in screen instead) |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
@@ -90,13 +90,13 @@ services:
       DB_USER: health
       DB_PASSWORD: change-me
       DB_NAME: health                 # created on first start if the user may; tables are always created/migrated
-      # --- The accounts: the ioThing suite's shared auth database, as in ioPix, ioNotes and ioContacts ---
-      # IOTHING_AUTH_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
-      IOTHING_AUTH_DB_NAME: auth
-      IOTHING_AUTH_DB_USER: auth
-      IOTHING_AUTH_DB_PASSWORD: change-me
+      # --- The accounts: the Shared ioSuite database, as in ioPix, ioNotes and ioContacts ---
+      # IOSUITE_SHARED_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
+      IOSUITE_SHARED_DB_NAME: iosuite
+      IOSUITE_SHARED_DB_USER: iosuite
+      IOSUITE_SHARED_DB_PASSWORD: change-me
       # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
-      # ADMIN_USER: alex                     # the first account, on an empty auth database
+      # ADMIN_USER: alex                     # the first account, on an empty Shared ioSuite database
       # ADMIN_PASSWORD: change-me-please
       # --- Optional ---
       TZ: Europe/Brussels             # fallback time zone for days and weeks; the browser normally sends its own
@@ -148,9 +148,9 @@ DB_PORT=3306
 DB_USER=health
 DB_PASSWORD=change-me
 DB_NAME=health
-IOTHING_AUTH_DB_NAME=auth
-IOTHING_AUTH_DB_USER=auth
-IOTHING_AUTH_DB_PASSWORD=change-me
+IOSUITE_SHARED_DB_NAME=iosuite
+IOSUITE_SHARED_DB_USER=iosuite
+IOSUITE_SHARED_DB_PASSWORD=change-me
 # IOTHING_COOKIE_DOMAIN=example.com
 # ADMIN_USER=alex
 # ADMIN_PASSWORD=change-me-please
@@ -167,7 +167,7 @@ IOTHING_AUTH_DB_PASSWORD=change-me
 ```sh
 docker run -d --name iohealth --restart unless-stopped -p 47800:47800 \
   -e DB_HOST=192.168.1.10 -e DB_USER=health -e DB_PASSWORD=change-me -e DB_NAME=health \
-  -e IOTHING_AUTH_DB_NAME=auth -e IOTHING_AUTH_DB_USER=auth -e IOTHING_AUTH_DB_PASSWORD=change-me \
+  -e IOSUITE_SHARED_DB_NAME=iosuite -e IOSUITE_SHARED_DB_USER=iosuite -e IOSUITE_SHARED_DB_PASSWORD=change-me \
   ghcr.io/avandeputte/iohealth:latest
 docker logs -f iohealth
 ```

@@ -1,7 +1,7 @@
 """Settings, all from the environment (the container's environment or a .env file loaded by docker compose).
 
 The health data lives in MariaDB/MySQL (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD); the accounts live in the
-ioThing suite's shared auth database (IOTHING_AUTH_DB_*), which defaults to the same server as the health data.
+Shared ioSuite database (IOSUITE_SHARED_DB_*; the older IOTHING_AUTH_DB_* still work), which defaults to the same server as the health data.
 """
 import os
 from pathlib import Path
@@ -23,8 +23,10 @@ DB_NAME = env("DB_NAME", "health")
 
 # The shared accounts: the same MariaDB server as the health data unless told otherwise. Set before iothing_auth is
 # imported, which reads them once.
-os.environ.setdefault("IOTHING_AUTH_DB_HOST", DB_HOST)
-os.environ.setdefault("IOTHING_AUTH_DB_PORT", str(DB_PORT))
+if "IOTHING_AUTH_DB_HOST" not in os.environ:
+    os.environ.setdefault("IOSUITE_SHARED_DB_HOST", DB_HOST)
+if "IOTHING_AUTH_DB_PORT" not in os.environ:
+    os.environ.setdefault("IOSUITE_SHARED_DB_PORT", str(DB_PORT))
 
 LISTEN_ADDR = env("LISTEN_ADDR", ":47800")
 TLS_CERT_FILE = env("TLS_CERT_FILE")

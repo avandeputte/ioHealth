@@ -22,7 +22,10 @@ def _database() -> dict:
 
 
 def _auth_database() -> dict:
-    return {"host": config.env("IOTHING_AUTH_DB_HOST", config.DB_HOST), "name": config.env("IOTHING_AUTH_DB_NAME", "auth")}
+    """The Shared ioSuite database, as iothing-auth resolved it (IOSUITE_SHARED_DB_*, the older names, or the defaults)."""
+    from iothing_auth import db as shared
+    p = shared.params()
+    return {"host": p["host"], "name": p["database"]}
 
 
 # ---- Settings › Server

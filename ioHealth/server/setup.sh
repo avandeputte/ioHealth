@@ -66,13 +66,13 @@ elif [ -z "$(getenv DB_HOST)" ] || [ "$YES" = 0 ]; then
 fi
 if [ -n "$AUTHS" ]; then
   split A "$AUTHS"
-  setenv IOTHING_AUTH_DB_HOST "$A_HOST"; setenv IOTHING_AUTH_DB_PORT "$A_PORT"; setenv IOTHING_AUTH_DB_NAME "$A_NAME"
-  setenv IOTHING_AUTH_DB_USER "$A_USER"; setenv IOTHING_AUTH_DB_PASSWORD "$A_PASSWORD"
+  setenv IOSUITE_SHARED_DB_HOST "$A_HOST"; setenv IOSUITE_SHARED_DB_PORT "$A_PORT"; setenv IOSUITE_SHARED_DB_NAME "$A_NAME"
+  setenv IOSUITE_SHARED_DB_USER "$A_USER"; setenv IOSUITE_SHARED_DB_PASSWORD "$A_PASSWORD"
 elif [ "$YES" = 0 ] && [ -t 0 ]; then
-  N="$(getenv IOTHING_AUTH_DB_NAME)"; U="$(getenv IOTHING_AUTH_DB_USER)"
-  ask N "Shared account database (ioThing suite, on the same server)" "${N:-auth}"; ask U "Its user" "${U:-auth}"
-  asksecret W "Its password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv IOTHING_AUTH_DB_PASSWORD)"
-  setenv IOTHING_AUTH_DB_NAME "$N"; setenv IOTHING_AUTH_DB_USER "$U"; setenv IOTHING_AUTH_DB_PASSWORD "$W"
+  N="$(getenv IOSUITE_SHARED_DB_NAME)"; [ -n "$N" ] || N="$(getenv IOTHING_AUTH_DB_NAME)"; U="$(getenv IOSUITE_SHARED_DB_USER)"; [ -n "$U" ] || U="$(getenv IOTHING_AUTH_DB_USER)"
+  ask N "Shared ioSuite database (accounts, sessions and suite settings; on the same server)" "${N:-iosuite}"; ask U "Its user" "${U:-iosuite}"
+  asksecret W "Its password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv IOSUITE_SHARED_DB_PASSWORD)"; [ -n "$W" ] || W="$(getenv IOTHING_AUTH_DB_PASSWORD)"
+  setenv IOSUITE_SHARED_DB_NAME "$N"; setenv IOSUITE_SHARED_DB_USER "$U"; setenv IOSUITE_SHARED_DB_PASSWORD "$W"
 fi
 [ -n "$COOKIE" ] || { C="$(getenv IOTHING_COOKIE_DOMAIN)"; ask COOKIE "Domain the sign-in is shared on, e.g. example.com (empty: none)" "$C"; }
 [ -n "$COOKIE" ] && setenv IOTHING_COOKIE_DOMAIN "$COOKIE"

@@ -1,5 +1,5 @@
 # ioHealth in a container: the iPhone's upload API and the web app on port 47800. Everything it keeps is in MariaDB
-# (DB_* and IOTHING_AUTH_DB_*); nothing is written to disk. See docker-compose.yml.
+# (DB_* and IOSUITE_SHARED_DB_*); nothing is written to disk. See docker-compose.yml.
 FROM python:3.12-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
