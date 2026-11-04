@@ -2370,13 +2370,42 @@ pages.day = async (main, arg) => {
     h('div', { style: { marginTop: '12px' } }, rangeBar(gl.stats.ranges)), rangeLegend(gl.stats.ranges, gl.target)));
 };
 
-// ---------- settings ----------
+// ---------- settings: tabs, as in ioContacts and ioCalendar (#/settings/account … #/settings/server) ----------
+// Each tab loads only what it shows. The account's own tabs come first, then the admins' (users, sign-in, the server
+// and its updates).
 
-pages.settings = async (main) => {
-  const [profile, allTypes] = await Promise.all([api('profile').catch(() => ({})), api('types').catch(() => [])]);
+const SETTINGS_TABS = () => [['account', 'Account'], ['devices', 'Apps and devices'], ['display', 'Display'], ['health', 'Health'], ['goals', 'Goals and alerts'],
+  ...(isAdmin() ? [['users', 'Users'], ['signin', 'Sign-in at the proxy'], ['server', 'Server']] : [])];
+const MAINT_TABS = [['database', 'Database'], ['uploads', 'Uploads']];
+
+/** The page title and a row of tabs linking to #/<view>/<tab> (#/<view>?tab=<tab>, the older spelling, still works).
+ *  Draws at once; the tab fills the returned body when its data is in. */
+function tabbedPage(main, view, ic, title, tabs, arg, params) {
+  let tab = arg || params?.get('tab');
+  if (!tabs.some(([k]) => k === tab)) tab = tabs[0][0];
+  if (arg !== tab) history.replaceState(null, '', `#/${view}/${tab}`);
+  const body = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+  const ver = window.healthStatus?.version;
+  main.replaceChildren(h('div', { class: 'spage' }, pageTitle(ic, 'slate', title, ver ? h('span', { class: 'muted' }, `ioHealth v${ver}`) : null),
+    h('div', { class: 'stabs', role: 'tablist' }, tabs.map(([k, l]) => h('button', { role: 'tab', class: k === tab ? 'on' : '', 'aria-selected': String(k === tab),
+      onclick: () => { location.hash = `#/${view}/${k}`; } }, l))),
+    body));
+  return { tab, body };
+}
+
+pages.settings = async (main, arg, params) => {
+  const { tab, body } = tabbedPage(main, 'settings', 'gear', 'Settings', SETTINGS_TABS(), arg, params);
+  const els = await ({ account: setAccount, devices: setDevices, display: setDisplay, health: setHealth, goals: setGoals,
+    users: async () => [await usersCard()], signin: async () => [await proxyCard()], server: setServer }[tab])(body);
+  if (els) body.replaceChildren(...els.filter(Boolean));
+};
+
+const sortedTypeList = async () => (await api('types').catch(() => [])).slice().sort((a, b) => typeLabel(a.type).localeCompare(typeLabel(b.type)));
+
+async function setDisplay() {
+  const sortedTypes = await sortedTypeList();
   const typeFilter = h('input', { placeholder: 'Filter…', style: { width: '200px' } });
   const typeRows = h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '2px 16px', marginTop: '10px' } });
-  const sortedTypes = allTypes.slice().sort((a, b) => typeLabel(a.type).localeCompare(typeLabel(b.type)));
   const drawTypes = () => typeRows.replaceChildren(...sortedTypes.filter(t => !typeFilter.value || typeLabel(t.type).toLowerCase().includes(typeFilter.value.toLowerCase()))
     .map(t => h('label', { class: 'row small', style: { gap: '6px', flexWrap: 'nowrap' } },
       h('input', { type: 'checkbox', checked: !(settings.hiddenTypes || []).includes(t.type), onchange: e => {
@@ -2386,13 +2415,50 @@ pages.settings = async (main) => {
       } }), typeLabel(t.type), h('span', { class: 'muted' }, fmtCompact(t.count)))));
   typeFilter.addEventListener('input', drawTypes);
   drawTypes();
-  const metricsCard = card('Metrics', h('div', { class: 'row spread' }, h('span', { class: 'small muted' }, 'Untick a metric to hide it everywhere (dashboard cards, Metrics, overlays). The number is how many samples you have.'),
-    h('span', { class: 'row' }, typeFilter,
-      h('button', { onclick: () => { settings.hiddenTypes = []; saveSettings(); typeListPromise = null; drawTypes(); } }, 'Show all'))), typeRows);
+  return [
+    card('Display',
+      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Units'),
+        seg([['metric', 'Kilometres'], ['imperial', 'Miles']], settings.units, v => { settings.units = v; saveSettings(); })),
+      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Theme'),
+        seg([['auto', 'System'], ['light', 'Light'], ['dark', 'Dark']], settings.theme, v => { settings.theme = v; saveSettings(); applyTheme(); })),
+      h('p', { class: 'small muted' }, 'Settings are saved with your account, so every browser sees the same ones.')),
+    card('Sections', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Switch off what you don\'t use; it disappears from the menu, the dashboard and the metric lists.'),
+      ...SECTIONS.map(([key, label, what]) => h('label', { class: 'row', style: { gap: '8px', margin: '6px 0' } },
+        h('input', { type: 'checkbox', checked: sectionOn(key), onchange: e => {
+          const set = new Set(settings.hiddenSections || []);
+          e.target.checked ? set.delete(key) : set.add(key);
+          settings.hiddenSections = [...set]; saveSettings(); typeListPromise = null; applySections();
+        } }), h('b', {}, label), h('span', { class: 'muted small' }, what)))),
+    card('Metrics', h('div', { class: 'row spread' }, h('span', { class: 'small muted' }, 'Untick a metric to hide it everywhere (dashboard cards, Metrics, overlays). The number is how many samples you have.'),
+      h('span', { class: 'row' }, typeFilter,
+        h('button', { onclick: () => { settings.hiddenTypes = []; saveSettings(); typeListPromise = null; drawTypes(); } }, 'Show all'))), typeRows)];
+}
+
+async function setHealth() {
+  const profile = await api('profile').catch(() => ({}));
   const maxIn = h('input', { type: 'number', min: 120, max: 230, placeholder: String(profile.maxHr || ''), value: settings.maxHr, style: { width: '110px' } });
   const sexNames = { 1: 'female', 2: 'male', 3: 'other' };
   const lowIn = h('input', { type: 'number', min: 50, max: 120, value: settings.glucoseLow || 70, style: { width: '90px' } });
   const highIn = h('input', { type: 'number', min: 100, max: 300, value: settings.glucoseHigh || 180, style: { width: '90px' } });
+  return [
+    card('Blood glucose',
+      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Unit'),
+        seg([['mg/dL', 'mg/dL'], ['mmol/L', 'mmol/L']], settings.glucoseUnit || 'mg/dL', v => { settings.glucoseUnit = v; saveSettings(); })),
+      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Target range (mg/dL)'), lowIn, '–', highIn,
+        h('button', { onclick: () => { settings.glucoseLow = lowIn.value || '70'; settings.glucoseHigh = highIn.value || '180'; saveSettings(); apiCache.clear(); } }, 'Save')),
+      h('p', { class: 'small muted' }, 'The usual CGM target is 70–180 mg/dL (3.9–10.0 mmol/L); some use 70–140 (3.9–7.8) for tighter goals. Very low (< 54) and very high (> 250) are fixed.')),
+    card('Heart rate',
+      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Maximum heart rate'), maxIn,
+        h('button', { onclick: () => { settings.maxHr = maxIn.value; saveSettings(); apiCache.clear(); maxIn.blur(); } }, 'Save'),
+        h('span', { class: 'muted small' }, profile.maxHr ? `Without a value: ${profile.maxHr} bpm (${profile.maxHrFrom === 'age' ? '220 − age' : 'highest recorded'})` : '')),
+      h('p', { class: 'small muted' }, 'Used for heart rate zones and training load.',
+        profile.restingHr ? ` Resting heart rate, 30-day average: ${profile.restingHr} bpm.` : '')),
+    card('Profile', h('div', { class: 'stats' }, stat('Age', profile.age ?? '—'), stat('Sex', sexNames[profile.characteristics?.biologicalSex] || '—')),
+      h('p', { class: 'small muted' }, 'From the characteristics the iPhone app sends (date of birth, sex). Health data is only read, never changed.'))];
+}
+
+async function setGoals() {
+  const [sortedTypes, allTypes] = await Promise.all([sortedTypeList(), api('types').catch(() => [])]);
   // Goals: a metric, at least / at most, and a value in the units the app shows.
   const goalTypes = sortedTypes.filter(t => ['quantity', 'category', 'ring'].includes(t.kind) && !typeHidden(t.type));
   const unitOf = t => { const x = allTypes.find(a => a.type === t); return !x ? '' : x.unit === '%' ? '%' : t === 'sleep_analysis' ? 'h per night' : prettyUnit(x.unit); };
@@ -2415,86 +2481,54 @@ pages.settings = async (main) => {
   const alertIn = (k, label, unit) => h('div', { class: 'goal-row' }, h('span', { style: { width: '300px' } }, label),
     h('input', { type: 'number', min: 0, step: 'any', value: settings.alerts?.[k] ?? '', placeholder: String(ALERT_DEFAULTS[k]), style: { width: '90px' },
       onchange: e => { settings.alerts = { ...(settings.alerts || {}), [k]: e.target.value }; saveSettings(); } }), h('span', { class: 'muted small' }, unit));
-  const tab = k => h('span', { class: 'stab-mark', 'data-tab': k, hidden: true });
-  main.replaceChildren(h('div', { class: 'spage' }, pageTitle('gear', 'slate', 'Settings', h('span', { class: 'muted' }, `ioHealth v${window.healthStatus?.version || ''}`)),
-    tab('display'),
-    card('Display',
-      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Units'),
-        seg([['metric', 'Kilometres'], ['imperial', 'Miles']], settings.units, v => { settings.units = v; saveSettings(); })),
-      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Theme'),
-        seg([['auto', 'System'], ['light', 'Light'], ['dark', 'Dark']], settings.theme, v => { settings.theme = v; saveSettings(); applyTheme(); }))),
-    card('Sections', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Switch off what you don\'t use; it disappears from the menu, the dashboard and the metric lists.'),
-      ...SECTIONS.map(([key, label, what]) => h('label', { class: 'row', style: { gap: '8px', margin: '6px 0' } },
-        h('input', { type: 'checkbox', checked: sectionOn(key), onchange: e => {
-          const set = new Set(settings.hiddenSections || []);
-          e.target.checked ? set.delete(key) : set.add(key);
-          settings.hiddenSections = [...set]; saveSettings(); typeListPromise = null; applySections();
-        } }), h('b', {}, label), h('span', { class: 'muted small' }, what)))),
-    metricsCard,
-    tab('health'),
-    card('Blood glucose',
-      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Unit'),
-        seg([['mg/dL', 'mg/dL'], ['mmol/L', 'mmol/L']], settings.glucoseUnit || 'mg/dL', v => { settings.glucoseUnit = v; saveSettings(); })),
-      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Target range (mg/dL)'), lowIn, '–', highIn,
-        h('button', { onclick: () => { settings.glucoseLow = lowIn.value || '70'; settings.glucoseHigh = highIn.value || '180'; saveSettings(); apiCache.clear(); } }, 'Save')),
-      h('p', { class: 'small muted' }, 'The usual CGM target is 70–180 mg/dL (3.9–10.0 mmol/L); some use 70–140 (3.9–7.8) for tighter goals. Very low (< 54) and very high (> 250) are fixed.')),
-    card('Heart rate',
-      h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, 'Maximum heart rate'), maxIn,
-        h('button', { onclick: () => { settings.maxHr = maxIn.value; saveSettings(); apiCache.clear(); maxIn.blur(); } }, 'Save'),
-        h('span', { class: 'muted small' }, profile.maxHr ? `Without a value: ${profile.maxHr} bpm (${profile.maxHrFrom === 'age' ? '220 − age' : 'highest recorded'})` : '')),
-      h('p', { class: 'small muted' }, 'Used for heart rate zones and training load.',
-        profile.restingHr ? ` Resting heart rate, 30-day average: ${profile.restingHr} bpm.` : '')),
-    card('Profile', h('div', { class: 'stats' }, stat('Age', profile.age ?? '—'), stat('Sex', sexNames[profile.characteristics?.biologicalSex] || '—')),
-      h('p', { class: 'small muted' }, 'From the characteristics the iPhone app sends (date of birth, sex). Health data is only read, never changed.')),
-    tab('goals'),
+  return [
     card('Goals', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Goals show on the dashboard cards (and as a dashed line in Metrics), with streaks and whether the trend is heading there. Daily totals such as steps count per day; levels such as weight use the latest reading.'),
       goalsEl, h('button', { onclick: addGoal, style: { marginTop: '6px' } }, '+ Add a goal')),
     card('Alerts on the dashboard', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Leave a box empty for the default shown in grey; 0 turns that alert off.'),
       alertIn('tir', 'Glucose time in range under (last 7 days)', '%'), alertIn('lows', 'Glucose lows in the last 7 days, at least', 'lows'),
       alertIn('rhr', 'Resting heart rate above your usual by', 'bpm (7 days against the 4 weeks before)'), alertIn('hrv', 'Heart rate variability below your usual by', '%'),
-      alertIn('sync', 'No sync from the iPhone for', 'hours')),
-    tab('account'),
-    await accountCard(),
-    card('On your phone', h('p', { class: 'small', style: { marginTop: 0 } }, 'Add ioHealth to the home screen and it opens full-screen like an app: in Safari on the iPhone, tap Share, then Add to Home Screen. On Android, use Chrome’s menu and Install app. Sign in once there; the session lasts 30 days.'),
-      h('p', { class: 'small muted' }, 'Settings are saved with your account, so every browser sees the same ones.')),
-    ...(isAdmin() ? [tab('users'), await usersCard(), tab('signin'), await proxyCard()] : [])));
-  settingsTabs($('.spage'), 'settings', [['display', 'Display'], ['health', 'Health'], ['goals', 'Goals and alerts'], ['account', 'Account'], ['users', 'Users'], ['signin', 'Sign-in at the proxy']]);
-};
-
-/** Settings and Maintenance are one page each, cut into tabs by hidden markers (as iopix does): #/settings?tab=users
- *  links straight to a tab, else the last one opened is shown again. */
-function settingsTabs(page, view, names) {
-  if (!page) return;
-  const groups = new Map();
-  let cur = null;
-  for (const el of [...page.children]) {
-    if (el.classList.contains('stab-mark')) { cur = el.dataset.tab; groups.set(cur, []); continue; }
-    if (cur) groups.get(cur).push(el);
-  }
-  const tabs = names.filter(([k]) => groups.has(k));
-  if (tabs.length < 2) return;
-  const KEY = `iohealth.tab.${view}`;
-  let pick = route().params.get('tab');
-  if (!groups.has(pick)) { try { pick = localStorage.getItem(KEY); } catch { /* private mode */ } }
-  if (!groups.has(pick)) pick = tabs[0][0];
-  const bar = h('div', { class: 'stabs', role: 'tablist' });
-  const show = k => {
-    for (const [g, els] of groups) els.forEach(el => { el.style.display = g === k ? '' : 'none'; });
-    for (const b of bar.children) { b.classList.toggle('on', b.dataset.tab === k); b.setAttribute('aria-selected', b.dataset.tab === k); }
-    try { localStorage.setItem(KEY, k); } catch { /* private mode */ }
-    const r = route();
-    if (r.params.get('tab') !== k) { r.params.set('tab', k); history.replaceState(null, '', `#/${view}?${r.params}`); }
-  };
-  for (const [k, label] of tabs) bar.append(h('button', { role: 'tab', 'data-tab': k, onclick: () => show(k) }, label));
-  page.querySelector('.stab-mark').before(bar);
-  show(pick);
+      alertIn('sync', 'No sync from the iPhone for', 'hours'))];
 }
 
-// ---------- maintenance (admins): the server itself, as iopix's Maintenance ----------
+// ---- Settings › Server (admins): the installed version and its updates, as ioContacts' and ioCalendar's Server tab
+
+async function setServer(el) {
+  const draw = async () => {
+    let s;
+    try { s = await authApi('api/server'); } catch (e) { el.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
+    if (!el.isConnected) return;
+    const c = s.check, p = s.progress, last = s.lastUpdate;
+    const state = h('p', { style: { marginTop: 0 }, class: p.error || (c && c.status === 'error') ? 'error' : '' }, p.running ? 'Updating… ioHealth restarts when it is done, and this page reloads.'
+      : p.error ? `The last update failed: ${p.error}`
+        : !c ? `You have v${s.version}${s.installed !== 'unknown' ? ` (${s.installed})` : ''}.`
+          : c.status === 'current' ? `v${s.version} is the latest version.`
+            : c.status === 'update' ? `You have v${s.version}; ${c.remoteVersion ? `v${c.remoteVersion}` : 'a newer build'} is available${c.remoteDate ? ` (${c.remoteDate})` : ''}${c.remoteMessage ? `: ${c.remoteMessage.replace(/^v\d+\.\d+\.\d+:\s*/, '')}` : ''}.`
+              : `Could not check: ${c.error}`);
+    const post = body => authApi('api/server', { method: 'POST', body });
+    el.replaceChildren(card('ioHealth version', state,
+      !p.running && !p.error && last ? h('p', { class: 'small ' + (last.ok ? 'muted' : 'error') }, `Last update: ${last.text}`) : null,
+      h('div', { class: 'toolbar' },
+        h('button', { onclick: async () => { state.className = ''; state.textContent = 'Checking…'; try { await post({ action: 'check' }); } catch (e) { toast(e.message); } refreshStatus(); draw(); } }, 'Check for updates'),
+        s.docker ? h('span', { class: 'muted small' }, 'Docker: update by pulling the image (docker compose pull && docker compose up -d).')
+          : s.canRun ? h('button', { class: c && c.status === 'update' ? 'primary' : '', disabled: p.running, onclick: async () => {
+            if (!await dialog('Update ioHealth', h('p', {}, 'Fetch the newest version, refresh its packages and restart ioHealth? Settings and health data stay; the page reloads when the new version is up.'), [{ label: 'Cancel', value: null }, { label: 'Update now', primary: true, value: true }])) return;
+            runUpdate((msg, failed) => { state.className = failed ? 'error' : ''; state.textContent = msg; });
+          } }, 'Update now')
+            : h('span', { class: 'muted small' }, 'This install cannot update itself from here (run ./update.sh in the app folder).')),
+      h('label', { class: 'row', style: { gap: '8px', margin: '10px 0', flexWrap: 'nowrap', alignItems: 'flex-start' } }, h('input', { type: 'checkbox', style: { flex: 'none', marginTop: '3px' }, checked: s.autoCheck, disabled: s.autoCheckLocked, onchange: async e => {
+        try { await post({ autoCheck: e.target.checked }); toast('Saved'); refreshStatus(); draw(); } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+      } }), h('span', {}, 'Check for a new version once a day (only GitHub’s public list of changes is asked; nothing about this server is sent)')),
+      s.autoCheckLocked ? h('p', { class: 'muted small' }, 'UPDATE_CHECK=0 in the environment keeps it off.') : null,
+      h('p', { class: 'muted small' }, `Follows ${s.repo} (${s.branch}). Database ${s.database}, schema version ${s.schemaVersion}; default time zone ${s.timezone}.`)));
+    if (p.running) setTimeout(() => { if (el.isConnected) draw(); }, 4000);
+  };
+  await draw();
+}
 
 const DISMISSED_UPDATE = 'iohealth.updateDismissed';
-/** The "a newer version is out" card, for admins, when the daily check found one (as iopix shows it): Update now runs
- *  update.sh from here and the page reloads with the new version; dismissed per version in this browser. */
+/** The "a newer version is out" card, for admins, when the daily check found one (as in the other ioThing apps):
+ *  Update now runs update.sh from here and the page reloads with the new version; Details opens Settings › Server;
+ *  dismissed per version in this browser. */
 function updateBanner(u) {
   let b = $('#updbanner');
   let gone = ''; try { gone = localStorage.getItem(DISMISSED_UPDATE) || ''; } catch { /* private mode */ }
@@ -2503,9 +2537,9 @@ function updateBanner(u) {
   if (b) b.remove();
   const text = h('div', {}, h('b', {}, u.version ? `ioHealth ${u.version} is available` : 'A newer build of ioHealth is available'),
     h('div', { class: 'muted' }, `You have v${window.healthStatus?.version || '?'}. ${(u.message || '').replace(/^v\d+\.\d+\.\d+:\s*/, '').slice(0, 140)}`));
-  const more = h('a', { href: '#/maintenance', onclick: () => b.remove() }, h('button', { class: 'small-btn' }, 'Details'));
+  const more = h('a', { href: '#/settings/server', onclick: () => b.remove() }, h('button', { class: 'small-btn' }, 'Details'));
   const run = u.canRun ? h('button', { class: 'small-btn primary', onclick: async () => {
-    if (!await dialog('Update ioHealth', h('p', {}, `Fetch ${u.version ? 'version ' + u.version : 'the latest version'}, refresh the packages and restart ioHealth? The page reloads when the new version is up.`), [{ label: 'Cancel', value: null }, { label: 'Update', primary: true, value: true }])) return;
+    if (!await dialog('Update ioHealth', h('p', {}, `Fetch ${u.version ? 'version ' + u.version : 'the latest version'}, refresh the packages and restart ioHealth? The page reloads when the new version is up.`), [{ label: 'Cancel', value: null }, { label: 'Update now', primary: true, value: true }])) return;
     runUpdate((msg, failed) => { run.hidden = more.hidden = true; text.replaceChildren(h('b', {}, failed ? 'The update did not finish' : 'Updating…'), h('div', { class: 'muted' }, msg)); });
   } }, 'Update now') : null;
   b = h('div', { id: 'updbanner', 'data-remote': u.remote }, h('span', { class: 'icwrap' }, icon('spark')), text, run, more,
@@ -2520,57 +2554,56 @@ async function runUpdate(onState) {
   const stamp = st => `${st.version}|${st.commit || ''}`;
   let was = '';
   try { was = stamp(await api('status', {}, { cache: false })); } catch { /* unknown */ }
-  try { await authApi('api/update/run', { method: 'POST', body: {} }); } catch (e) { onState(e.message, true); return false; }
-  onState('Updating… the page reloads when the new version is up.', false);
+  try { await authApi('api/server', { method: 'POST', body: { action: 'update' } }); } catch (e) { onState(e.message, true); return false; }
+  onState('Updating… ioHealth restarts when it is done, and the page reloads.', false);
   const until = Date.now() + 180000;
   const t = setInterval(async () => {
     try { const st = await api('status', {}, { cache: false }); if (stamp(st) !== was) { clearInterval(t); location.reload(); return; } } catch { /* restarting */ }
     if (Date.now() > until) {
       clearInterval(t);
       let msg = 'ioHealth did not come back with a new version within 3 minutes.';
-      try { const u = await authApi('api/update'); if (u.lastUpdate && !u.lastUpdate.ok) msg = u.lastUpdate.text; } catch { /* still down */ }
+      try { const s = await authApi('api/server'); if (s.lastUpdate && !s.lastUpdate.ok) msg = s.lastUpdate.text; } catch { /* still down */ }
       onState(msg, true);
     }
   }, 3000);
   return true;
 }
 
-pages.maintenance = async (main) => {
+// ---------- maintenance (admins): the data, in tabs as in ioContacts (#/maintenance/database, #/maintenance/uploads) ----------
+
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${u[i]}`;
+}
+
+pages.maintenance = async (main, arg, params) => {
   if (!isAdmin()) { main.replaceChildren(h('p', { class: 'empty' }, 'Maintenance is for admins. Sign in as an admin to see it.')); return; }
-  const m = await authApi('api/maintenance');
-  const u = m.update;
-  const row = (label, detail, ...right) => h('div', { class: 'srow' }, h('div', {}, h('b', {}, label), h('div', { class: 'note' }, detail)), ...right);
-  const out = h('div', { class: 'small', style: { marginTop: '8px' } });
-  const showCheck = c => { out.className = 'small' + (c && c.status === 'error' ? ' error' : ''); out.textContent = !c ? '' : c.status === 'current' ? `Up to date (${c.installed}).`
-    : c.status === 'update' ? `A newer version is out: ${c.remoteVersion || c.remote} (${c.remoteDate}): ${c.remoteMessage}` : `Could not check: ${c.error}`; };
-  showCheck(u.check);
-  const checkBtn = h('button', { onclick: async () => { out.textContent = 'Checking…'; showCheck(await authApi('api/update/check', { method: 'POST' }).catch(e => ({ status: 'error', error: e.message }))); refreshStatus(); } }, 'Check for updates');
-  const runBtn = u.canRun ? h('button', { class: 'primary', onclick: async () => {
-    if (!await dialog('Update ioHealth', h('p', {}, 'Install the latest version and restart ioHealth? It takes about a minute; the page reloads when the new version is up.'), [{ label: 'Cancel', value: null }, { label: 'Update', primary: true, value: true }])) return;
-    runUpdate((msg, failed) => { out.className = 'small' + (failed ? ' error' : ''); out.textContent = msg; });
-  } }, 'Update now') : null;
-  const auto = h('label', { class: 'row', style: { gap: '8px' } }, h('input', { type: 'checkbox', checked: u.autoCheck, disabled: u.autoCheckLocked, onchange: async e => {
-    try { await authApi('api/update/auto', { method: 'POST', body: { on: e.target.checked } }); toast(e.target.checked ? 'ioHealth asks GitHub once a day' : 'Daily check off'); } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
-  } }), 'Check for updates daily', u.autoCheckLocked ? h('span', { class: 'muted small' }, '(UPDATE_CHECK=0: off for good)') : null);
-  const tables = Object.entries(m.database.tables);
-  main.replaceChildren(h('div', { class: 'spage' }, pageTitle('wrench', 'slate', 'Maintenance', h('span', { class: 'muted' }, `ioHealth v${m.version}`)),
-    card('ioHealth version',
-      row(`Version ${m.version}, commit ${m.commit}`, m.docker ? 'Running in Docker: update by pulling the image (docker compose pull && docker compose up -d), then the container restarts on the new version.'
-        : u.canRun ? 'Update now fetches the latest code from GitHub, refreshes the packages and restarts the service (update.sh).' : 'update.sh is not runnable from here (no .venv, or the app folder is not writable by the server’s user); update by hand.',
-        h('span', { class: 'row' }, checkBtn, runBtn)),
-      u.lastUpdate ? h('p', { class: 'small ' + (u.lastUpdate.ok ? 'okc' : 'error') }, 'Last update: ' + u.lastUpdate.text) : null,
-      auto, out),
-    card('Database',
-      row('Health data', `${m.database.host}:${m.database.port}/${m.database.name}, schema version ${m.database.schemaVersion}. ${fmtCompact(m.database.tables.samples)} samples of ${m.database.types} types; ${fmtCompact(m.database.tables.workouts)} workouts, ${fmtCompact(m.database.tables.workout_route_points)} route points, ${fmtCompact(m.database.tables.heartbeats)} heartbeats, ${fmtCompact(m.database.tables.activity_summaries)} days of rings.`),
-      row('Accounts', `The ioThing suite’s shared auth database: ${m.auth.host}/${m.auth.name}.`),
-      row('Hourly rollup', `Charts over months or years read sample_hourly (${fmtCompact(m.database.tables.sample_hourly)} rows) instead of every sample. ${m.rollup.ready.length} of ${m.rollup.total} types are rolled up${m.rollup.ready.length < m.rollup.total ? '; the rest is being filled in the background, one type and month at a time' : ''}.`),
-      h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Table'), h('th', { class: 'r' }, 'Rows'))),
-        h('tbody', {}, tables.map(([t, n]) => h('tr', {}, h('td', {}, t), h('td', { class: 'r num' }, fmtCompact(n)))))))),
-    card('Uploads', h('p', { class: 'small muted', style: { marginTop: 0 } }, `The last sync of every account (${m.database.tables.sync_log} syncs so far). Time zone for days and weeks when the browser sends none: ${m.tz}.`),
-      m.syncs.length ? h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, ['Account', 'Device', 'Started', 'Finished', 'Items'].map(c => h('th', {}, c)))),
-        h('tbody', {}, m.syncs.map(x => h('tr', {}, h('td', {}, x.user), h('td', {}, x.device || '—'), h('td', { class: 'small muted' }, fmtAgo(x.started)),
-          h('td', { class: 'small muted' }, x.finished ? fmtAgo(x.finished) : 'not finished'), h('td', { class: 'r num' }, fmtCompact(x.items) + (x.fullResync ? ' (full)' : ''))))))) : h('p', { class: 'muted' }, 'No sync yet.'))));
+  const { tab, body } = tabbedPage(main, 'maintenance', 'wrench', 'Maintenance', MAINT_TABS, arg, params);
+  body.replaceChildren(...await ({ database: maintDatabase, uploads: maintUploads }[tab])());
 };
+
+async function maintDatabase() {
+  const m = await authApi('api/maintenance');
+  const d = m.database, n = Object.fromEntries(d.tables.map(t => [t.name, t.rows]));
+  const row = (label, detail) => h('div', { class: 'srow' }, h('div', {}, h('b', {}, label), h('div', { class: 'note' }, detail)));
+  return [card('Database',
+    row('Health data', `${d.host}:${d.port}/${d.name}, schema version ${d.schemaVersion}, ${fmtBytes(d.bytes)} on disk. About ${fmtCompact(n.samples)} samples of ${d.types} types; ${fmtCompact(n.workouts)} workouts, ${fmtCompact(n.workout_route_points)} route points, ${fmtCompact(n.heartbeats)} heartbeats, ${fmtCompact(n.activity_summaries)} days of rings.`),
+    row('Accounts', `The ioThing suite’s shared auth database: ${m.auth.host}/${m.auth.name}.`),
+    row('Hourly rollup', `Charts over months or years read sample_hourly instead of every sample. ${m.rollup.ready} of ${m.rollup.total} types are rolled up${m.rollup.ready < m.rollup.total ? '; the rest is being filled in the background, one type and month at a time' : ''}.`),
+    h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Table'), h('th', { class: 'r' }, 'Rows (about)'), h('th', { class: 'r' }, 'Size'))),
+      h('tbody', {}, d.tables.map(t => h('tr', {}, h('td', {}, t.name), h('td', { class: 'r num' }, fmtCompact(t.rows)), h('td', { class: 'r num' }, fmtBytes(t.bytes))))))),
+    h('p', { class: 'small muted' }, 'Row counts are the database’s own estimates, which it keeps up to date as data arrives; counting every row of the large tables would take many seconds.'))];
+}
+
+async function maintUploads() {
+  const u = await authApi('api/maintenance/uploads');
+  return [card('Uploads', h('p', { class: 'small muted', style: { marginTop: 0 } }, `The last sync of every account (${fmtCompact(u.total)} syncs so far).`),
+    u.syncs.length ? h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, ['Account', 'Device', 'Started', 'Finished', 'Items'].map(c => h('th', {}, c)))),
+      h('tbody', {}, u.syncs.map(x => h('tr', {}, h('td', {}, x.user), h('td', {}, x.device || '—'), h('td', { class: 'small muted' }, fmtAgo(x.started)),
+        h('td', { class: 'small muted' }, x.finished ? fmtAgo(x.finished) : 'not finished'), h('td', { class: 'r num' }, fmtCompact(x.items) + (x.fullResync ? ' (full)' : ''))))))) : h('p', { class: 'muted' }, 'No sync yet.'))];
+}
 
 // ---------- accounts: sign-in, the account menu, Settings › Account / Users / Sign-in at the proxy ----------
 // The same flow as iopix (and ionotes, ioContacts): accounts live in the ioThing suite's shared auth database, so
@@ -2716,6 +2749,8 @@ function renderUserMenu() {
   }
   const btn = h('button', { class: 'avatar-btn', title: me.user.name, 'aria-label': 'Account', onclick: () => menu(btn, [
     { head: `${me.user.name} · ${me.user.role}${me.signedInBy === 'cloudflare' ? ' · via Cloudflare' : ''}` },
+    { label: 'Account', action: () => { location.hash = '#/settings/account'; } },
+    { label: 'Connect the iPhone app', action: () => { location.hash = '#/settings/devices'; } },
     { label: 'Settings', action: () => { location.hash = '#/settings'; } },
     isAdmin() ? { label: 'Maintenance', action: () => { location.hash = '#/maintenance'; } } : null,
     me.user.passwordless ? null : { label: 'Change password', action: changePassword },
@@ -2726,7 +2761,7 @@ function renderUserMenu() {
   el.append(btn);
 }
 
-// ---- Settings › Account: the account, its app passwords (the iPhone app signs in with one), its sessions
+// ---- Settings › Account and Apps and devices
 
 function copyRow(text) {
   const inp = h('input', { type: 'text', value: text, readonly: true, style: { flex: 1, minWidth: '240px', fontFamily: 'ui-monospace, monospace' }, onclick: e => e.target.select() });
@@ -2735,8 +2770,26 @@ function copyRow(text) {
   } }, 'Copy'));
 }
 
-async function accountCard() {
+/** Settings › Account: who is signed in, the password and the sessions. */
+async function setAccount() {
   const u = me.user;
+  return [card('You',
+    h('div', { class: 'toolbar' }, avatar(u, true), h('div', {}, h('b', {}, u.displayName || u.name), h('div', { class: 'small muted' }, `${u.name} · ${u.role}${u.suiteAdmin ? ' · suite admin' : ''}${u.email ? ' · ' + u.email : ''}`))),
+    h('p', { class: 'small muted' }, 'One account for every ioThing app on this domain: the name, password and sessions are the same in ioPix, ioNotes, ioContacts and ioCalendar.')),
+  card('Password and sessions',
+    h('div', { class: 'toolbar' },
+      u.passwordless || me.viaProxy ? null : h('button', { onclick: changePassword }, 'Change password'),
+      h('button', { onclick: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } }, 'Sign out everywhere else'),
+      h('button', { onclick: signOut }, 'Sign out')),
+    u.passwordless ? h('p', { class: 'small muted' }, 'This account signs in with one click and has no password; an admin can give it one under Users.')
+      : me.viaProxy ? h('p', { class: 'small muted' }, 'Signed in through the proxy in front of ioHealth; the password is changed there.') : null)];
+}
+
+/** Settings › Apps and devices: what the iPhone app needs (this server's address, the user name, an app password),
+ *  the app passwords themselves, and the web app on the phone's home screen. */
+async function setDevices() {
+  const u = me.user;
+  const server = location.origin + location.pathname.replace(/\/[^/]*$/, '');
   const list = h('div');
   const shown = h('div');
   const label = h('input', { type: 'text', placeholder: 'e.g. Alex’s iPhone', value: /iPhone/.test(navigator.userAgent) ? 'iPhone' : '' });
@@ -2752,24 +2805,24 @@ async function accountCard() {
         } }, 'Revoke'))))))
       : h('p', { class: 'small muted' }, 'No app passwords yet.'));
   };
-  draw();
+  await draw();
   const who = u.passwordless ? 'This account signs in with one click, so it cannot have app passwords; an admin can give it a password under Users.'
     : u.role === 'viewer' ? 'This account is a viewer: it can look at its data but not upload any. An admin can make it an editor under Users.' : '';
-  return card('Account',
-    h('div', { class: 'toolbar' }, avatar(u, true), h('div', {}, h('b', {}, u.displayName || u.name), h('div', { class: 'small muted' }, `${u.name} · ${u.role}${u.suiteAdmin ? ' · suite admin' : ''}${u.email ? ' · ' + u.email : ''}`)),
-      u.passwordless || me.viaProxy ? null : h('button', { onclick: changePassword }, 'Change password'),
-      h('button', { onclick: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } }, 'Sign out everywhere else'),
-      h('button', { onclick: signOut }, 'Sign out')),
-    h('h3', {}, 'iPhone app'),
-    h('p', { class: 'small', style: { marginTop: 0 } }, 'A password for one device or script, revocable on its own: use it in place of your password with this server’s address (the iPhone app takes it in its Password field too), and what it sends is yours.'),
-    who ? h('p', { class: 'small error' }, who) : h('div', { class: 'toolbar' }, label, h('button', { class: 'primary', onclick: async () => {
-      try {
-        const r = await authApi('api/auth/app-passwords', { method: 'POST', body: { label: label.value || 'iPhone' } });
-        shown.replaceChildren(h('p', { class: 'small' }, h('b', {}, 'Copy it now: '), 'it is shown only once.'), copyRow(r.password));
-        draw();
-      } catch (e) { toast(e.message); }
-    } }, '+ New app password')),
-    shown, list);
+  const kv = (k, v) => h('div', { class: 'toolbar', style: { margin: '0 0 2px' } }, h('span', { style: { width: '120px' } }, k), copyRow(v));
+  return [
+    card('iPhone app', h('p', { class: 'small', style: { marginTop: 0 } }, 'The ioHealth app on the iPhone sends the Health data here. In the app, fill in this server’s address, your user name and an app password (below), then tap Test connection and Sync now.'),
+      kv('Server address', server), kv('User name', u.name),
+      who ? h('p', { class: 'small error' }, who) : null),
+    card('App passwords', h('p', { class: 'small', style: { marginTop: 0 } }, 'Give every device or script its own password instead of yours; you can revoke one without touching the others. Use it with your user name; what it sends is yours.'),
+      who ? null : h('div', { class: 'toolbar' }, label, h('button', { class: 'primary', onclick: async () => {
+        try {
+          const r = await authApi('api/auth/app-passwords', { method: 'POST', body: { label: label.value || 'iPhone' } });
+          shown.replaceChildren(h('p', { class: 'small' }, h('b', {}, 'Copy it now: '), 'it is shown only once.'), copyRow(r.password));
+          label.value = ''; draw();
+        } catch (e) { toast(e.message); }
+      } }, '+ New app password')),
+      shown, list),
+    card('On your phone', h('p', { class: 'small', style: { marginTop: 0 } }, 'Add the ioHealth web app to the home screen and it opens full-screen like an app: in Safari on the iPhone, tap Share, then Add to Home Screen. On Android, use Chrome’s menu and Install app. Sign in once there; the session lasts 30 days.'))];
 }
 
 // ---- Settings › Users (admins): accounts and their role in ioHealth, as in iopix

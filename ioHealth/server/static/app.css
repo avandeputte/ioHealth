@@ -246,7 +246,8 @@ tr.click:hover td { background: var(--bg); }
 .menu button:hover { background: var(--bg); }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--card); padding: 8px 14px; border-radius: 8px; z-index: 2200; font-size: 13px; }
-table.grid { border-collapse: collapse; }
+table.grid { display: table; border-collapse: collapse; }
+table.grid th.r, table.grid td.r { text-align: right; }
 table.grid th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 4px 8px 4px 0; }
 table.grid td { padding: 6px 8px 6px 0; border-top: 1px solid var(--line); }
 @media (max-width: 640px) {

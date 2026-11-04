@@ -81,7 +81,7 @@ app.include_router(auth.router())        # /api/auth/*: login, accounts, logout,
 app.include_router(auth.users_router())  # /api/users: this app's admins
 app.include_router(upload.router)
 app.include_router(webapi.router)
-app.include_router(maintenance.router)  # /api/maintenance, /api/update*: admins
+app.include_router(maintenance.router)  # /api/server, /api/maintenance: admins
 app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
 
 __all__ = ["app", "APP"]
