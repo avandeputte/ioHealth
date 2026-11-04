@@ -14,7 +14,7 @@ why there are two parts:
 
 ```
 ┌──────────────┐   HTTPS (REST, gzip NDJSON)   ┌───────────────┐        ┌──────────┐
-│   ioHealth   │ ────────────────────────────▶ │ reverse proxy │ ─────▶ │  server  │ ──▶ MariaDB (health + auth)
+│   ioHealth   │ ────────────────────────────▶ │ reverse proxy │ ─────▶ │  server  │ ──▶ MariaDB (health + iosuite)
 │  (iPhone)    │                               │ (TLS)         │  HTTP  │ (Docker) │
 └──────────────┘                               └───────────────┘        └──────────┘
 ```
@@ -39,8 +39,8 @@ The server runs in any of three ways, as ioPix, ioNotes and ioContacts do; pick 
 | [Standalone](#standalone-any-linux-or-mac) | `setup.sh` on any Linux box or Mac: a Python virtual environment and a `systemd` service | `ioHealth/server/.env` |
 
 Whichever way, it needs an existing MariaDB (or MySQL) server with two databases on it: one for the health data
-(created if the user may; tables are created and migrated at every start) and the ioThing suite's shared **auth**
-database, which holds the accounts for every app in the suite (also created at start; if ioPix, ioNotes or ioContacts
+(created if the user may; tables are created and migrated at every start) and the **Shared ioSuite** database
+(`iosuite`), which holds the accounts and the suite-wide settings for every app in the suite (also created at start; if ioPix, ioNotes or ioContacts
 already runs, point ioHealth at the same one and the accounts are there already). It listens on port **47800**, for
 both the phone's uploads and the web app; put it behind your reverse proxy for [HTTPS](#https).
 
@@ -55,10 +55,10 @@ installs write; `setup.sh` asks for the important ones); never commit real value
 | `DB_PORT` | no | default `3306` |
 | `DB_USER`, `DB_PASSWORD` | yes | a user that may create tables in `DB_NAME` (and the database itself, ideally) |
 | `DB_NAME` | no | default `health` |
-| `IOTHING_AUTH_DB_HOST`, `IOTHING_AUTH_DB_PORT` | no | the server with the suite's shared account database; default: the same as `DB_HOST` / `DB_PORT` |
-| `IOTHING_AUTH_DB_NAME`, `IOTHING_AUTH_DB_USER`, `IOTHING_AUTH_DB_PASSWORD` | yes | the shared account database (default name `auth`) and a user that may create tables in it |
+| `IOTHING_AUTH_DB_HOST`, `IOTHING_AUTH_DB_PORT` | no | the server with the Shared ioSuite database; default: the same as `DB_HOST` / `DB_PORT` |
+| `IOTHING_AUTH_DB_NAME`, `IOTHING_AUTH_DB_USER`, `IOTHING_AUTH_DB_PASSWORD` | yes | the Shared ioSuite database (accounts and suite-wide settings; name and user `iosuite` by default) and a user that may create tables in it. The variables keep the `IOTHING_AUTH_DB_` names the iothing-auth library reads |
 | `IOTHING_COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
-| `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty account database (or create it from the sign-in screen instead) |
+| `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty Shared ioSuite database (or create it from the sign-in screen instead) |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
 | `TZ` | no | fallback time zone (e.g. `Europe/Brussels`) for days and weeks; the browser sends its own, so this only matters for API calls without `tz` |
 | `MAP_TILE_URL`, `MAP_TILE_ATTRIBUTION` | no | map tiles for routes, default OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) |
@@ -90,13 +90,13 @@ services:
       DB_USER: health
       DB_PASSWORD: change-me
       DB_NAME: health                 # created on first start if the user may; tables are always created/migrated
-      # --- The accounts: the ioThing suite's shared auth database, as in ioPix, ioNotes and ioContacts ---
+      # --- The accounts and suite-wide settings: the Shared ioSuite database, as in ioPix, ioNotes and ioContacts ---
       # IOTHING_AUTH_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
-      IOTHING_AUTH_DB_NAME: auth
-      IOTHING_AUTH_DB_USER: auth
+      IOTHING_AUTH_DB_NAME: iosuite
+      IOTHING_AUTH_DB_USER: iosuite
       IOTHING_AUTH_DB_PASSWORD: change-me
       # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
-      # ADMIN_USER: alex                     # the first account, on an empty auth database
+      # ADMIN_USER: alex                     # the first account, on an empty Shared ioSuite database
       # ADMIN_PASSWORD: change-me-please
       # --- Optional ---
       TZ: Europe/Brussels             # fallback time zone for days and weeks; the browser normally sends its own
@@ -148,8 +148,8 @@ DB_PORT=3306
 DB_USER=health
 DB_PASSWORD=change-me
 DB_NAME=health
-IOTHING_AUTH_DB_NAME=auth
-IOTHING_AUTH_DB_USER=auth
+IOTHING_AUTH_DB_NAME=iosuite
+IOTHING_AUTH_DB_USER=iosuite
 IOTHING_AUTH_DB_PASSWORD=change-me
 # IOTHING_COOKIE_DOMAIN=example.com
 # ADMIN_USER=alex
@@ -167,7 +167,7 @@ IOTHING_AUTH_DB_PASSWORD=change-me
 ```sh
 docker run -d --name iohealth --restart unless-stopped -p 47800:47800 \
   -e DB_HOST=192.168.1.10 -e DB_USER=health -e DB_PASSWORD=change-me -e DB_NAME=health \
-  -e IOTHING_AUTH_DB_NAME=auth -e IOTHING_AUTH_DB_USER=auth -e IOTHING_AUTH_DB_PASSWORD=change-me \
+  -e IOTHING_AUTH_DB_NAME=iosuite -e IOTHING_AUTH_DB_USER=iosuite -e IOTHING_AUTH_DB_PASSWORD=change-me \
   ghcr.io/avandeputte/iohealth:latest
 docker logs -f iohealth
 ```
@@ -187,11 +187,11 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/mai
 
 creates a small Debian 13 container (2 CPUs, 1 GB, 4 GB disk by default), puts the server in `/opt/iohealth/app` and
 runs its `setup.sh` there. It asks, as the other apps' scripts do, for the MariaDB host, port, database, user and
-password of the health data, the same for the suite's shared account database (the one ioPix, ioNotes and ioContacts
-use), the cookie domain, the first account (only used when that database is still empty), the time zone and the
+password of the health data, the same for the Shared ioSuite database (`iosuite` by default; the one ioPix, ioNotes
+and ioContacts use), the cookie domain, the first account (only used when that database is still empty), the time zone and the
 port (47800), after the framework's own questions (resources, network). The passwords reach `setup.sh` through its environment (a root-only file pushed in and removed again),
 never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`. The MariaDB users must be allowed to connect from the container's address. For unattended runs `IOHEALTH_DB` and
-`IOHEALTH_AUTH_DB` (`host:port/db:user:password`), `IOHEALTH_TZ`, `IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN` and
+`IOHEALTH_SUITE_DB` (`host:port/db:user:password`), `IOHEALTH_TZ`, `IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN` and
 `IOHEALTH_ADMIN` (`name:password`) in the environment answer the questions in advance. `update` inside the container (or "Update now" in the web app) runs
 `update.sh`.
 
@@ -204,8 +204,9 @@ git clone https://github.com/avandeputte/ioHealth && cd ioHealth/ioHealth/server
 ./update.sh         # later: the latest code, same settings
 ```
 
-`setup.sh` takes flags instead of questions (`--db`, `--auth-db`, `--tz`, `--port`, `--cookie-domain`, `--admin`,
-`--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_AUTH_DB` and `IOHEALTH_ADMIN` in the environment),
+`setup.sh` takes flags instead of questions (`--db`, `--suite-db`, `--tz`, `--port`, `--cookie-domain`, `--admin`,
+`--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_SUITE_DB` and `IOHEALTH_ADMIN` in the environment;
+the older `--auth-db` and `IOHEALTH_AUTH_DB` still work),
 writes `.env` (readable by the owner only), makes `.venv` (Python 3.11 or later), installs the `iohealth` systemd
 service and waits until it answers. Without the service, `./run.sh` starts it in the foreground from the same `.env`; a
 launchd job `net.iothing.iohealth.server` on a Mac can run that script, and "Update now" in the web app restarts
@@ -323,8 +324,8 @@ screen it stays docked beside the page, or its button puts it away (remembered) 
 the page when needed. On phones the same pages are a bottom bar (Dashboard, Day, Metrics, Workouts) with the rest
 under More.
 
-**Accounts** are the ioThing suite's shared accounts ([iothing-auth](https://github.com/avandeputte/iothing-auth): one
-MariaDB database shared with ioPix, ioNotes and ioContacts), so one name, password and session serve every app, and
+**Accounts** are the ioThing suite's shared accounts ([iothing-auth](https://github.com/avandeputte/iothing-auth): the
+Shared ioSuite database in MariaDB, shared with ioPix, ioNotes and ioContacts), so one name, password and session serve every app, and
 someone signed in at `photos.example.com` is signed in at `health.example.com` too when the apps share a domain
 (`IOTHING_COOKIE_DOMAIN`). What is ioHealth's own is kept per app: the role an account holds here, its settings and
 its health data. A *suite admin* is admin in every app.

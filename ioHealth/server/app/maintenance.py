@@ -21,8 +21,8 @@ def _database() -> dict:
     return {"host": p["host"], "port": p["port"], "name": p["database"], "schemaVersion": db.schema_version()}
 
 
-def _auth_database() -> dict:
-    return {"host": config.env("IOTHING_AUTH_DB_HOST", config.DB_HOST), "name": config.env("IOTHING_AUTH_DB_NAME", "auth")}
+def _suite_database() -> dict:
+    return {"host": config.env("IOTHING_AUTH_DB_HOST", config.DB_HOST), "name": config.SUITE_DB_NAME}
 
 
 # ---- Settings › Server
@@ -69,7 +69,7 @@ def maintenance():
     return {
         "version": __version__,
         "database": {**_database(), "tables": tables, "bytes": sum(s["bytes"] for s in stats.values()), "types": types},
-        "auth": _auth_database(),
+        "suite": _suite_database(),
         "rollup": {"ready": len(webapi.ready.types), "total": types},
         "tz": config.TZ,
     }

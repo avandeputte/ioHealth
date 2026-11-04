@@ -213,7 +213,7 @@ USER_KEYED = {"activity_summaries": "date", "characteristics": "`key`", "web_set
 
 
 def _multi_user():
-    """9: every row belongs to an account (user_id, the account's id in the shared auth database). The column is added
+    """9: every row belongs to an account (user_id, the account's id in the Shared ioSuite database). The column is added
     without touching a row (ALGORITHM=INSTANT; it fails rather than rewrite a big table)."""
     def run(con):
         with con.cursor() as cur:
