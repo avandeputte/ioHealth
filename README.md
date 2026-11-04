@@ -21,7 +21,7 @@ why there are two parts:
 
 | path | what |
 |---|---|
-| `ioHealth/server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iothing-auth](https://github.com/avandeputte/iothing-auth) library, like ioPix, ioNotes and ioContacts |
+| `ioHealth/server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iosuite-shared](https://github.com/avandeputte/iosuite-shared) library (Python package `iothing-auth`), like ioPix, ioNotes and ioContacts |
 | `ioHealth/iOS/` | the iPhone app |
 | `ioHealth/Shared/` | the upload line format (`SyncProtocol.swift`) shared by the apps |
 | `ioHealth/Mac/`, `ioHealth/ExportImporter/` | legacy macOS tools (a SQLite receiver the phone no longer talks to, and an importer for the Health app's `export.zip`) |
@@ -324,7 +324,7 @@ screen it stays docked beside the page, or its button puts it away (remembered) 
 the page when needed. On phones the same pages are a bottom bar (Dashboard, Day, Metrics, Workouts) with the rest
 under More.
 
-**Accounts** are the ioThing suite's shared accounts ([iothing-auth](https://github.com/avandeputte/iothing-auth): the
+**Accounts** are the ioThing suite's shared accounts ([iosuite-shared](https://github.com/avandeputte/iosuite-shared), Python package `iothing-auth`: the
 Shared ioSuite database in MariaDB, shared with ioPix, ioNotes and ioContacts), so one name, password and session serve every app, and
 someone signed in at `photos.example.com` is signed in at `health.example.com` too when the apps share a domain
 (`IOTHING_COOKIE_DOMAIN`). What is ioHealth's own is kept per app: the role an account holds here, its settings and

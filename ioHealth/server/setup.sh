@@ -43,7 +43,7 @@ split() {  # HOST:PORT/DATABASE:USER:PASSWORD into $1_HOST, $1_PORT, $1_NAME, $1
   _s="$2"; eval "$1_HOST=\"\${_s%%:*}\""; _r="${_s#*:}"; eval "$1_PORT=\"\${_r%%/*}\""; _r="${_r#*/}"
   eval "$1_NAME=\"\${_r%%:*}\""; _r="${_r#*:}"; eval "$1_USER=\"\${_r%%:*}\""; eval "$1_PASSWORD=\"\${_r#*:}\""; }
 
-# ---- system packages (Python 3.11+ with venv, and git for the iothing-auth package)
+# ---- system packages (Python 3.11+ with venv, and git for the iothing-auth package from the iosuite-shared repository)
 if [ "$SYSDEPS" != 0 ] && { ! python3 -c 'import sys, venv, ensurepip; assert sys.version_info >= (3, 11)' 2>/dev/null || ! command -v git >/dev/null; }; then
   say "Installing Python and git"
   if command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip git curl >/dev/null
