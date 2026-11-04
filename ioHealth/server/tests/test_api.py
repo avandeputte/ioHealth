@@ -181,3 +181,13 @@ def test_the_phone_signs_in_with_the_account_password(client, admin):
     assert r.status_code == 201 and r.json()["sessionId"]
     wrong = "Basic " + base64.b64encode(b"alex:not-the-password").decode()
     assert client.post("/v1/sessions", json={"deviceName": "aphone"}, headers={"Authorization": wrong}).status_code == 401
+
+
+def test_registers_in_the_suite_list(client):
+    from iothing_auth import suite
+    from app import __version__
+    assert suite.get("iohealth") is None
+    client.get("/v1/health")
+    row = suite.get("iohealth")
+    assert row["name"] == "ioHealth" and row["version"] == __version__
+    assert row["description"] == "Health and fitness" and row["color"] == "#e8445a"

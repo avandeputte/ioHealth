@@ -12,10 +12,15 @@ import logging
 from fastapi import HTTPException, Request
 from iothing_auth.fastapi import Auth
 
+from app import __version__, config
+
 APP = "iohealth"
 log = logging.getLogger("app.auth")
 
-auth = Auth(APP, app_label="ioHealth")
+# version, public_url, description, color and icon: ioHealth's row in the suite's list of apps (iothing_auth.suite),
+# written on the first request, so the start page (ioSuite) and the other apps find it
+auth = Auth(APP, app_label="ioHealth", version=__version__, public_url=config.PUBLIC_URL or None,
+            description="Health and fitness", color="#e8445a", icon="/favicon.svg")
 
 
 def me(request: Request) -> dict:

@@ -36,6 +36,10 @@ MAP_TILE_ATTRIBUTION = env("MAP_TILE_ATTRIBUTION", '&copy; <a href="https://www.
 # Fallback time zone for days and weeks when a request carries no tz parameter.
 TZ = env("TZ", "UTC")
 
+# PUBLIC_URL: the address the suite's start page and other apps link to (https://health.example.com). Empty: the best
+# address ioHealth is reached at, noted by iothing-auth (a host under IOTHING_COOKIE_DOMAIN over HTTPS first).
+PUBLIC_URL = env("PUBLIC_URL").rstrip("/")
+
 # UPDATE_CHECK=0: never ask GitHub whether a newer version exists (the daily check, Maintenance › ioHealth version)
 UPDATE_CHECK = env("UPDATE_CHECK", "1") not in ("0", "false", "no", "off")
 
