@@ -53,14 +53,18 @@ def _client(app):
 
 @pytest.fixture(autouse=True)
 def clean(_client):
-    from iothing_auth import db as authdb, users
+    from iothing_auth import db as authdb, suite, users
     from app import webapi
+    from app.auth import auth
     with db.conn() as con, con.cursor() as cur:
         for t in HEALTH_TABLES:
             cur.execute(f"DELETE FROM {t}")
     authdb.ex("DELETE FROM users")
     authdb.ex("ALTER TABLE users AUTO_INCREMENT = 1")
     authdb.ex("DELETE FROM settings")
+    authdb.ex("DELETE FROM suite_apps")
+    auth._registered = False
+    suite.invalidate()
     users.invalidate()
     users._attempts.clear()
     webapi.cache.clear()
