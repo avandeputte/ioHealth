@@ -6,30 +6,31 @@
 #   ./setup.sh --yes ...       no questions: what .env already holds, the flags below, and the defaults
 #
 # Flags: --db HOST:PORT/DATABASE:USER:PASSWORD        the health data (MariaDB / MySQL)
-#        --auth-db HOST:PORT/DATABASE:USER:PASSWORD   the ioThing suite's shared accounts (default: the same server)
+#        --suite-db HOST:PORT/DATABASE:USER:PASSWORD  the Shared ioSuite database: accounts and suite-wide settings
+#                                                     (default: the same server, database and user iosuite)
 #        --cookie-domain DOMAIN   --tz ZONE   --port N (47800)   --admin NAME:PASSWORD
 #        --service | --no-service   --system-deps | --no-system-deps   --python PATH
-# Secrets can stay off the command line: IOHEALTH_DB, IOHEALTH_AUTH_DB and IOHEALTH_ADMIN in the environment do what
-# --db, --auth-db and --admin do. Run it again at any time: it keeps .env and
-# only changes what you answer.
+# Secrets can stay off the command line: IOHEALTH_DB, IOHEALTH_SUITE_DB and IOHEALTH_ADMIN in the environment do what
+# --db, --suite-db and --admin do (the older --auth-db and IOHEALTH_AUTH_DB still work). Run it again at any time: it
+# keeps .env and only changes what you answer.
 set -e
 cd "$(dirname "$0")"
 APP="$(pwd)"
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-YES=0; DBS=""; AUTHS=""; COOKIE=""; TZV=""; PORT=""; ADMIN=""; SERVICE=""; SYSDEPS=""; PY=""
+YES=0; DBS=""; SUITES=""; COOKIE=""; TZV=""; PORT=""; ADMIN=""; SERVICE=""; SYSDEPS=""; PY=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --yes) YES=1; shift;; --db) DBS="$2"; shift 2;; --auth-db) AUTHS="$2"; shift 2;; --cookie-domain) COOKIE="$2"; shift 2;;
+    --yes) YES=1; shift;; --db) DBS="$2"; shift 2;; --suite-db|--auth-db) SUITES="$2"; shift 2;; --cookie-domain) COOKIE="$2"; shift 2;;
     --tz) TZV="$2"; shift 2;; --port) PORT="$2"; shift 2;; --admin) ADMIN="$2"; shift 2;;
     --service) SERVICE=1; shift;; --no-service) SERVICE=0; shift;; --system-deps) SYSDEPS=1; shift;; --no-system-deps) SYSDEPS=0; shift;;
     --python) PY="$2"; shift 2;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) die "unknown option $1 (try --help)";;
   esac
 done
 [ -n "$DBS" ] || DBS="${IOHEALTH_DB:-}"
-[ -n "$AUTHS" ] || AUTHS="${IOHEALTH_AUTH_DB:-}"
+[ -n "$SUITES" ] || SUITES="${IOHEALTH_SUITE_DB:-${IOHEALTH_AUTH_DB:-}}"
 [ -n "$ADMIN" ] || ADMIN="${IOHEALTH_ADMIN:-}"
 ask() { _v="$1"; _q="$2"; _d="$3"
   if [ "$YES" = 1 ] || [ ! -t 0 ]; then eval "$_v=\"\$_d\""; return; fi
@@ -64,13 +65,14 @@ elif [ -z "$(getenv DB_HOST)" ] || [ "$YES" = 0 ]; then
   asksecret W "Password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv DB_PASSWORD)"
   setenv DB_HOST "$H"; setenv DB_PORT "$P"; setenv DB_NAME "$D"; setenv DB_USER "$U"; setenv DB_PASSWORD "$W"
 fi
-if [ -n "$AUTHS" ]; then
-  split A "$AUTHS"
+# the Shared ioSuite database; the IOTHING_AUTH_DB_* names are the ones the iothing-auth library reads
+if [ -n "$SUITES" ]; then
+  split A "$SUITES"
   setenv IOTHING_AUTH_DB_HOST "$A_HOST"; setenv IOTHING_AUTH_DB_PORT "$A_PORT"; setenv IOTHING_AUTH_DB_NAME "$A_NAME"
   setenv IOTHING_AUTH_DB_USER "$A_USER"; setenv IOTHING_AUTH_DB_PASSWORD "$A_PASSWORD"
 elif [ "$YES" = 0 ] && [ -t 0 ]; then
   N="$(getenv IOTHING_AUTH_DB_NAME)"; U="$(getenv IOTHING_AUTH_DB_USER)"
-  ask N "Shared account database (ioThing suite, on the same server)" "${N:-auth}"; ask U "Its user" "${U:-auth}"
+  ask N "Shared ioSuite database (accounts and suite-wide settings, on the same server)" "${N:-iosuite}"; ask U "Its user" "${U:-iosuite}"
   asksecret W "Its password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv IOTHING_AUTH_DB_PASSWORD)"
   setenv IOTHING_AUTH_DB_NAME "$N"; setenv IOTHING_AUTH_DB_USER "$U"; setenv IOTHING_AUTH_DB_PASSWORD "$W"
 fi
@@ -81,7 +83,7 @@ setenv TZ "$TZV"
 if [ -z "$PORT" ]; then L="$(getenv LISTEN_ADDR)"; ask PORT "Port" "${L##*:}"; [ -n "$PORT" ] || PORT=47800; fi
 setenv LISTEN_ADDR ":$PORT"
 if [ -z "$ADMIN" ] && [ "$YES" = 0 ] && [ -t 0 ]; then
-  ask AN "First admin, only for an empty account database (empty: none, or make it in the browser)" ""
+  ask AN "First admin, only for an empty Shared ioSuite database (empty: none, or make it in the browser)" ""
   if [ -n "$AN" ]; then asksecret AW "Its password (8 or more)"; [ -n "$AW" ] && ADMIN="$AN:$AW"; fi
 fi
 if [ -n "$ADMIN" ]; then setenv ADMIN_USER "${ADMIN%%:*}"; setenv ADMIN_PASSWORD "${ADMIN#*:}"; fi

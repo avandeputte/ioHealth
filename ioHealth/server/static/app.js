@@ -2590,7 +2590,7 @@ async function maintDatabase() {
   const row = (label, detail) => h('div', { class: 'srow' }, h('div', {}, h('b', {}, label), h('div', { class: 'note' }, detail)));
   return [card('Database',
     row('Health data', `${d.host}:${d.port}/${d.name}, schema version ${d.schemaVersion}, ${fmtBytes(d.bytes)} on disk. About ${fmtCompact(n.samples)} samples of ${d.types} types; ${fmtCompact(n.workouts)} workouts, ${fmtCompact(n.workout_route_points)} route points, ${fmtCompact(n.heartbeats)} heartbeats, ${fmtCompact(n.activity_summaries)} days of rings.`),
-    row('Accounts', `The ioThing suite’s shared auth database: ${m.auth.host}/${m.auth.name}.`),
+    row('Shared ioSuite', `Accounts and suite-wide settings, shared with the other ioSuite apps: ${m.suite.host}/${m.suite.name}.`),
     row('Hourly rollup', `Charts over months or years read sample_hourly instead of every sample. ${m.rollup.ready} of ${m.rollup.total} types are rolled up${m.rollup.ready < m.rollup.total ? '; the rest is being filled in the background, one type and month at a time' : ''}.`),
     h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Table'), h('th', { class: 'r' }, 'Rows (about)'), h('th', { class: 'r' }, 'Size'))),
       h('tbody', {}, d.tables.map(t => h('tr', {}, h('td', {}, t.name), h('td', { class: 'r num' }, fmtCompact(t.rows)), h('td', { class: 'r num' }, fmtBytes(t.bytes))))))),
@@ -2606,7 +2606,7 @@ async function maintUploads() {
 }
 
 // ---------- accounts: sign-in, the account menu, Settings › Account / Users / Sign-in at the proxy ----------
-// The same flow as iopix (and ionotes, ioContacts): accounts live in the ioThing suite's shared auth database, so
+// The same flow as iopix (and ionotes, ioContacts): accounts live in the Shared ioSuite database, so
 // one sign-in serves every app on the domain. Health data is private: nothing shows until someone signs in.
 
 let me = { user: null, usersExist: false, isAdmin: false };

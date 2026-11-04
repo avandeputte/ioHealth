@@ -3,15 +3,15 @@
 # this is the ct/ script; proxmox/install/iohealth-install.sh runs inside the container.
 #
 # After the framework's own questions (resources, network) it asks about the app, as the other apps' scripts do: the
-# MariaDB server, database, user and password for the health data, the same for the suite's shared account database
-# (the one ioPix, ioNotes and ioContacts use), the cookie domain, the first account, the time zone and the port. It
+# MariaDB server, database, user and password for the health data, the same for the Shared ioSuite database
+# (accounts and suite-wide settings, the one ioPix, ioNotes and ioContacts use), the cookie domain, the first account, the time zone and the port. It
 # creates the container, puts the
 # server (ioHealth/server of the repository) in /opt/iohealth/app and runs its setup.sh inside, which installs the
 # packages, writes .env, installs the iohealth service and waits until it answers.
 #
 # Run on the Proxmox host as root:
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/ioHealth/server/proxmox/ct/iohealth.sh)"
-# Unattended: IOHEALTH_DB=host:port/db:user:password IOHEALTH_AUTH_DB=host:port/db:user:password
+# Unattended: IOHEALTH_DB=host:port/db:user:password IOHEALTH_SUITE_DB=host:port/db:user:password
 #   IOHEALTH_TZ=Europe/Brussels IOHEALTH_PORT=47800 IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password
 #   in the environment answer the questions in advance. IOHEALTH_REF=<branch|sha> installs that instead of main.
 IOHEALTH_REF="${IOHEALTH_REF:-main}"
@@ -50,20 +50,21 @@ ask_app_settings() {
     IOHEALTH_DB="$h:$p/$d:$u:$w"
   fi
   local dbhost="${IOHEALTH_DB%%:*}" r="${IOHEALTH_DB#*:}"; local dbport="${r%%/*}"
-  if [[ -z "${IOHEALTH_AUTH_DB:-}" ]]; then
-    h=$(whiptail --backtitle "$bt" --inputbox "Host of the suite's shared account database, the one ioPix, ioNotes and ioContacts sign in against (accounts, passwords and sessions are shared)" 11 76 "$dbhost" 3>&1 1>&2 2>&3) || exit 1
+  IOHEALTH_SUITE_DB="${IOHEALTH_SUITE_DB:-${IOHEALTH_AUTH_DB:-}}"  # IOHEALTH_AUTH_DB: the older name
+  if [[ -z "${IOHEALTH_SUITE_DB:-}" ]]; then
+    h=$(whiptail --backtitle "$bt" --inputbox "Host of the Shared ioSuite database, the one ioPix, ioNotes and ioContacts use (accounts, passwords, sessions and suite-wide settings are shared)" 11 76 "$dbhost" 3>&1 1>&2 2>&3) || exit 1
     p=$(whiptail --backtitle "$bt" --inputbox "Port" 9 60 "$dbport" 3>&1 1>&2 2>&3) || exit 1
-    d=$(whiptail --backtitle "$bt" --inputbox "Account database (created if the user may)" 9 70 "auth" 3>&1 1>&2 2>&3) || exit 1
-    u=$(whiptail --backtitle "$bt" --inputbox "Its user" 9 60 "auth" 3>&1 1>&2 2>&3) || exit 1
+    d=$(whiptail --backtitle "$bt" --inputbox "Shared ioSuite database (created if the user may)" 9 70 "iosuite" 3>&1 1>&2 2>&3) || exit 1
+    u=$(whiptail --backtitle "$bt" --inputbox "Its user" 9 60 "iosuite" 3>&1 1>&2 2>&3) || exit 1
     w=$(whiptail --backtitle "$bt" --passwordbox "Its password" 9 60 3>&1 1>&2 2>&3) || exit 1
-    IOHEALTH_AUTH_DB="$h:$p/$d:$u:$w"
+    IOHEALTH_SUITE_DB="$h:$p/$d:$u:$w"
   fi
   if [[ -z "${IOHEALTH_COOKIE_DOMAIN+x}" ]]; then
     IOHEALTH_COOKIE_DOMAIN=$(whiptail --backtitle "$bt" --inputbox "Domain the sign-in is shared on, as for the other apps (e.g. example.com; empty: none)" 9 76 "" 3>&1 1>&2 2>&3) || exit 1
   fi
   if [[ -z "${IOHEALTH_ADMIN+x}" ]]; then
     local an aw
-    an=$(whiptail --backtitle "$bt" --inputbox "First account's user name, used only when the shared account database is still empty (the suite's existing accounts work as they are)" 11 76 "admin" 3>&1 1>&2 2>&3) || exit 1
+    an=$(whiptail --backtitle "$bt" --inputbox "First account's user name, used only when the Shared ioSuite database is still empty (the suite's existing accounts work as they are)" 11 76 "admin" 3>&1 1>&2 2>&3) || exit 1
     aw=$(whiptail --backtitle "$bt" --passwordbox "Its password (8 characters or more; empty: make the first account from the sign-in screen instead)" 10 72 3>&1 1>&2 2>&3) || exit 1
     [[ -n "$aw" ]] && IOHEALTH_ADMIN="$an:$aw" || IOHEALTH_ADMIN=""
   fi
@@ -106,7 +107,7 @@ msg_ok "Fetched ioHealth $(pct exec "$CTID" -- cut -c1-7 /opt/iohealth/app/COMMI
 
 msg_info "Running the app's setup inside the container (packages, settings, tables, first account, service)"
 # the answers with passwords go in as a root-only file (pushed, read into setup.sh's environment, removed), never as arguments
-SECRETS="IOHEALTH_DB=$(printf '%q' "$IOHEALTH_DB")"$'\n'"IOHEALTH_AUTH_DB=$(printf '%q' "$IOHEALTH_AUTH_DB")"$'\n'
+SECRETS="IOHEALTH_DB=$(printf '%q' "$IOHEALTH_DB")"$'\n'"IOHEALTH_SUITE_DB=$(printf '%q' "$IOHEALTH_SUITE_DB")"$'\n'
 [[ -n "${IOHEALTH_ADMIN:-}" ]] && SECRETS+="IOHEALTH_ADMIN=$(printf '%q' "$IOHEALTH_ADMIN")"$'\n'
 SECF="$(mktemp)"; chmod 600 "$SECF"; printf '%s' "$SECRETS" > "$SECF"
 pct push "$CTID" "$SECF" /opt/iohealth/setup.env --perms 0600 --user 0 --group 0
