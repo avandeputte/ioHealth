@@ -13,7 +13,7 @@
 # Keeps .env and the Python environment. A git checkout is pulled; an installed copy (no .git) is replaced from
 # the GitHub tarball (the server lives in ioHealth/server of the repository). The Python packages the new
 # version asks for are installed first, and the code moves only once that succeeded, so a failed package install
-# leaves the installed version running as it was. Maintenance › ioHealth version › Update now runs this script.
+# leaves the installed version running as it was. Settings › Server › Update now runs this script.
 set -e
 cd "$(dirname "$0")"
 APP="$(pwd)"

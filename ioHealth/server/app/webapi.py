@@ -196,9 +196,10 @@ _all_types = {"at": 0.0, "v": []}
 
 
 def all_type_names() -> list:
-    """Every type anyone has (the samples index, cheap); cached a few minutes."""
+    """Every type anyone has; cached a few minutes. GROUP BY, not DISTINCT: MariaDB answers it from the type index by
+    jumping from one type to the next (a loose index scan), where DISTINCT reads every sample's index entry."""
     if time.time() - _all_types["at"] > 300:
-        _all_types.update(v=[r[0] for r in db.q("SELECT DISTINCT type FROM samples")], at=time.time())
+        _all_types.update(v=[r[0] for r in db.q("SELECT type FROM samples GROUP BY type")], at=time.time())
     return _all_types["v"]
 
 

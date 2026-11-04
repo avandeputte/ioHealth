@@ -220,10 +220,10 @@ databases of its own, `health_test`, `auth_test_iohealth` and `health_mig_test`,
 - **Standalone:** `./update.sh` in `ioHealth/server` fetches the latest code (git, or the GitHub tarball when
   there is no checkout), installs the packages the new version asks for and only then moves the code in, then
   restarts the service. `--check` only reports; `IOHEALTH_REF=<sha>` installs that commit.
-- **From the web app:** Maintenance › ioHealth version (admins) shows the installed version and commit, "Check for
-  updates" compares it with GitHub's `main`, and "Update now" runs `update.sh` (in Docker it says to pull instead).
-  A daily check (on by default; `UPDATE_CHECK=0` locks it off, Maintenance switches it off) shows admins a card when
-  a newer version exists, with Update now right on it, as in ioPix and ioNotes. Only the public commit list is
+- **From the web app:** Settings › Server (admins), as in ioContacts and ioCalendar, shows the installed version and
+  commit, "Check for updates" compares it with GitHub's `main`, and "Update now" runs `update.sh` (in Docker it says
+  to pull instead). A daily check (on by default; `UPDATE_CHECK=0` locks it off, Settings › Server switches it off)
+  shows admins a card when a newer version exists, with Update now right on it. Only the public commit list is
   fetched; nothing about the install is sent.
 
 ### HTTPS
@@ -336,8 +336,9 @@ its health data. A *suite admin* is admin in every app.
 | **editor** | plus upload: the iPhone app signs in as an editor |
 | **admin** | plus accounts (Settings › Users: add people, their role here, make someone a suite admin) and the sign-in settings |
 
-Settings › Account is where you change your password, make **app passwords** (a per-device password for the API or
-a script, shown once, revocable; the iPhone app can use one in place of your password) and sign out everywhere. Sessions are random tokens in an HttpOnly cookie (`iothing_session`, shared
+Settings › Account is where you change your password and sign out everywhere; Settings › Apps and devices shows what
+the iPhone app needs (this server's address and your user name) and makes **app passwords** (a per-device password for
+the iPhone app, the API or a script, shown once, revocable). Sessions are random tokens in an HttpOnly cookie (`iothing_session`, shared
 by the apps on the domain) valid for 30 days and renewed while in use; passwords are scrypt-hashed; wrong passwords
 cost a growing wait.
 
@@ -353,8 +354,8 @@ cost a growing wait.
 | **Glucose** | blood glucose from a CGM or meter: average, GMI (estimated A1c), time in/below/above range, variability (CV), low episodes; readings with your target band and optional overlays (heart rate, steps, carbohydrates, insulin, workouts…); the daily pattern (ambulatory glucose profile) and time in range per day; **glucose around workouts and meals**: the average change from an hour before to three hours after, per activity or per meal size (from logged carbohydrates), and each event's numbers. A workout's own page shows its glucose curve too. mg/dL or mmol/L and the target range are set in Settings |
 | **Correlations** | pick two metrics and a period: a scatter plot of the days (click a dot for that day), the correlation, how much one explains the other and the best-fit line, same day or "the day before" (sleep, workouts or carbs, then the next day's glucose). Includes glucose time in range and variability per day and workout minutes. A table ranks what else goes with the second metric |
 | **Records** | fastest running efforts from the GPS routes, best days, health bests, ring streaks, and bests per activity |
-| **Settings** | in tabs, as in ioPix. *Display*: km or miles, light/dark theme, and which pages and metrics to show (turn off Sleep, Glucose or any metric you don't use and it disappears from the menu, the dashboard, Metrics and Records). *Health*: glucose unit and target range, maximum heart rate (default 220 − age from your date of birth), your profile. *Goals and alerts*: **goals** (any metric, at least or at most: 10,000 steps a day, weight at most 75 kg, 7.5 h of sleep…) and the thresholds for dashboard alerts. *Account*: password, app passwords, sign out everywhere. *Users* and *Sign-in at the proxy* for admins |
-| **Maintenance** | admins: the installed version and commit with Check for updates / Update now and the daily check; the databases, schema version and table sizes, how far the hourly rollup has got, and the last upload of every account |
+| **Settings** | in tabs, as in ioContacts and ioCalendar (`#/settings/<tab>`; each tab loads only what it shows). *Account*: who you are, password, sign out everywhere. *Apps and devices*: connecting the iPhone app, app passwords, the web app on the home screen. *Display*: km or miles, light/dark theme, and which pages and metrics to show (turn off Sleep, Glucose or any metric you don't use and it disappears from the menu, the dashboard, Metrics and Records). *Health*: glucose unit and target range, maximum heart rate (default 220 − age from your date of birth), your profile. *Goals and alerts*: **goals** (any metric, at least or at most: 10,000 steps a day, weight at most 75 kg, 7.5 h of sleep…) and the thresholds for dashboard alerts. For admins: *Users*, *Sign-in at the proxy*, and *Server*: the installed version with Check for updates / Update now and the daily check |
+| **Maintenance** | admins, in tabs. *Database*: the databases, schema version, each table's rows (the database's own estimate, so the page opens at once) and size on disk, how far the hourly rollup has got. *Uploads*: the last upload of every account |
 
 **Export.** The ⤓ CSV buttons download what a chart or table shows (Metrics, Day, glucose readings and responses,
 workouts, sleep, correlations). ⤓ PDF in the header saves the current page through the print dialog, in light colours
@@ -370,7 +371,7 @@ sleep that night. Settings are stored in the database (`web_settings`, per accou
 
 The web app's data comes from a JSON API under `/api/` (`types`, `series`, `workouts`, `workouts/{uuid}`, `routes`,
 `sleep`, `glucose`, `activity`, `profile`, `records`, `records/efforts`, `status`, and `settings`, which also takes `PUT`; for admins `maintenance`,
-`update`, `update/check`, `update/run` and `update/auto`), which also accepts an app password as a bearer token, for
+`maintenance/uploads` and `server`, which also takes `POST` with `{"action": "check"}`, `{"action": "update"}` or `{"autoCheck": false}`), which also accepts an app password as a bearer token, for
 scripts (`Authorization: Bearer iohealth-…`); it answers with that account's data. Map tiles load from OpenStreetMap in the browser; everything else (including the chart and map
 libraries, [uPlot](https://github.com/leeoniya/uPlot) and [Leaflet](https://leafletjs.com)) is served by the
 container.

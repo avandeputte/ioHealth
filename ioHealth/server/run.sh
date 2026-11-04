@@ -3,7 +3,7 @@
 # The first run creates .venv (with uv when available, else python3 -m venv) and installs pyproject.toml. The
 # settings in .env (copy .env.example) are loaded when the file exists; variables already in the environment win.
 # A service (systemd unit `iohealth`, or launchd `net.iothing.iohealth.server`) can run this same script; then
-# Maintenance › ioHealth version › Update now (update.sh) restarts it after an update.
+# Settings › Server › Update now (update.sh) restarts it after an update.
 set -e
 cd "$(dirname "$0")"
 if [ -f .env ]; then
