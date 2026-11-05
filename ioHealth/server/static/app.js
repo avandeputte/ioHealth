@@ -88,12 +88,63 @@ const pageTitle = (ic, hue, ...kids) => h('h1', { class: 'ptitle', style: { '--h
 function buildNav() {
   const nav = $('#nav');
   nav.replaceChildren(
-    h('div', { class: 'navhead' }, h('a', { class: 'brand', href: '#/', title: 'Dashboard' }, h('img', { src: 'favicon.svg', alt: '', width: 24, height: 24 }),
-      h('span', { class: 'brand-name' }, h('span', { class: 'io' }, 'io'), h('span', { class: 'nm' }, 'Health'))), h('button', { id: 'sidebtn', class: 'iconbtn' })),
+    h('div', { class: 'navhead' }, brand('brand'), h('button', { id: 'sidebtn', class: 'iconbtn' })),
     ...NAV.flatMap(n => [NAV_GROUPS[n[0]] ? [h('div', { class: 'navgap' }), h('div', { class: 'navsec' }, NAV_GROUPS[n[0]])] : null, navLink(n)]).flat().filter(Boolean),
     h('button', { class: 'navmore', 'data-page': 'more', title: 'More', onclick: moreSheet }, icon('more'), 'More'),
     h('div', { class: 'navfoot' }, ...NAV_FOOT.map(navLink), h('div', { class: 'ver', id: 'nav-version' })));
   initSidebar();
+}
+
+/** The app mark and name, top left (in the sidebar, and in the top bar while the sidebar is put away or on a phone).
+ *  Alone, it is the link to the Dashboard. When other ioThing apps are registered in the suite (iothing-auth's
+ *  suite_apps), the mark opens a menu of them, each a link to that app, and the name stays the link to the Dashboard. */
+let suiteApps = [];
+function brand(cls) {
+  const mark = () => h('img', { src: 'favicon.svg', alt: '', width: 24, height: 24, class: 'brand-mark' });
+  const name = (tag, attrs) => h(tag, attrs, h('span', { class: 'io' }, 'io'), h('span', { class: 'nm' }, 'Health'));
+  if (!suiteApps.length) return h('a', { class: cls, href: '#/', title: 'Dashboard' }, mark(), name('span', { class: 'brand-name' }));
+  return h('div', { class: cls },
+    h('button', { class: 'suitebtn', title: 'ioThing apps', 'aria-label': 'ioThing apps', 'aria-haspopup': 'menu', onclick: e => toggleSuite(e.currentTarget) }, mark()),
+    name('a', { class: 'brand-name', href: '#/', title: 'Dashboard' }));
+}
+function drawBrands() {
+  $('#nav .navhead > .brand')?.replaceWith(brand('brand'));
+  $('#topbar > .topbrand')?.replaceWith(brand('brand topbrand'));
+}
+async function loadSuite() {
+  try {
+    const r = await authApi('api/auth/suite');
+    suiteApps = (r.items || []).filter(a => a.app !== r.app && a.url);
+  } catch { suiteApps = []; }
+  if (!suiteApps.length) closeSuite();
+  drawBrands();
+}
+let suitePop = null;
+function closeSuite() {
+  if (!suitePop) return;
+  suitePop.remove(); suitePop = null;
+  document.removeEventListener('click', suiteOutside, true);
+  document.removeEventListener('keydown', suiteKey, true);
+  removeEventListener('resize', closeSuite);
+}
+function suiteOutside(e) { if (suitePop && !suitePop.contains(e.target) && !e.target.closest('.suitebtn')) closeSuite(); }
+function suiteKey(e) { if (e.key === 'Escape' && suitePop) { closeSuite(); e.stopPropagation(); } }
+function appTile(a) {
+  const letter = (a.name || a.app).replace(/^io(?=[A-Z])/, '').slice(0, 1).toUpperCase();
+  const fallback = () => h('span', { class: 'appic fb', style: { background: a.color || 'var(--accent)' } }, letter);
+  const ic = a.icon ? h('img', { class: 'appic', src: a.icon, alt: '', onerror: e => e.currentTarget.replaceWith(fallback()) }) : fallback();
+  return h('a', { class: 'apptile', href: a.url, role: 'menuitem', title: a.description || a.name, onclick: closeSuite },
+    ic, h('span', { class: 'appnm' }, a.name || a.app));
+}
+function toggleSuite(btn) {
+  if (suitePop) { closeSuite(); return; }
+  if (!suiteApps.length) return;
+  suitePop = h('div', { class: 'suitepop', role: 'menu', 'aria-label': 'ioThing apps', style: { '--cols': String(Math.min(3, suiteApps.length)) } }, suiteApps.map(appTile));
+  document.body.append(suitePop);
+  const r = btn.getBoundingClientRect();
+  suitePop.style.top = `${Math.round(r.bottom + 6)}px`;
+  suitePop.style.left = `${Math.round(Math.max(8, Math.min(r.left - 6, innerWidth - suitePop.offsetWidth - 8)))}px`;
+  setTimeout(() => { document.addEventListener('click', suiteOutside, true); document.addEventListener('keydown', suiteKey, true); addEventListener('resize', closeSuite); }, 0);
 }
 
 /** The sidebar docks beside the page on a wide screen, unless its button put it away (remembered). Put away, or on
@@ -2897,6 +2948,7 @@ loadMe().then(async () => {
   if (!me.user) { signIn(true); return; }
   document.body.classList.toggle('noadmin', !isAdmin());
   buildNav();
+  loadSuite();
   await loadSettings();
   applyTheme();
   applySections();

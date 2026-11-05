@@ -191,3 +191,15 @@ def test_registers_in_the_suite_list(client):
     row = suite.get("iohealth")
     assert row["name"] == "ioHealth" and row["version"] == __version__
     assert row["description"] == "Health and fitness" and row["color"] == "#e8445a"
+
+
+def test_suite_apps_for_the_app_switcher(client):
+    """The app mark becomes a menu of the suite's other apps: /api/auth/suite lists them with an address and an
+    absolute icon, ioHealth among them."""
+    from iothing_auth import suite
+    client.get("/v1/health")
+    suite.register("iopix", name="ioPix", url="https://photo.example.net", color="#123456", icon="/static/icon.svg")
+    r = client.get("/api/auth/suite").json()
+    assert r["app"] == "iohealth"
+    other = [a for a in r["items"] if a["app"] != r["app"]]
+    assert [(a["name"], a["url"], a["icon"]) for a in other] == [("ioPix", "https://photo.example.net", "https://photo.example.net/static/icon.svg")]
