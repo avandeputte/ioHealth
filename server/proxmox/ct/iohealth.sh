@@ -7,12 +7,12 @@
 # (accounts and suite-wide settings, the one ioPix, ioNotes and ioContacts use), the cookie domain, the first account, the time zone and the port. It
 # creates the container, puts the
 # server (server/ of the repository) in /opt/iohealth/app and runs its setup.sh inside, which installs the
-# packages, writes .env, installs the iohealth service and waits until it answers.
+# packages, writes config.env, installs the iohealth service and waits until it answers.
 #
 # Run on the Proxmox host as root:
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/server/proxmox/ct/iohealth.sh)"
 # Unattended: IOHEALTH_DB=host:port/db:user:password IOHEALTH_SUITE_DB=host:port/db:user:password
-#   IOHEALTH_TZ=Europe/Brussels IOHEALTH_PORT=47800 IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password
+#   IOHEALTH_TZ=Europe/Brussels IOHEALTH_PORT=47800 IOHEALTH_PUBLIC_URL=https://health.example.com IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password
 #   in the environment answer the questions in advance. IOHEALTH_REF=<branch|sha> installs that instead of main.
 IOHEALTH_REF="${IOHEALTH_REF:-main}"
 export COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/avandeputte/ioHealth/${IOHEALTH_REF}/server/proxmox}"
@@ -42,7 +42,7 @@ catch_errors
 ask_app_settings() {
   local bt="ioHealth" h p d u w
   if [[ -z "${IOHEALTH_DB:-}" ]]; then
-    h=$(whiptail --backtitle "$bt" --inputbox "MariaDB / MySQL host or IP (the health data is kept there)" 9 70 "192.168.1.89" 3>&1 1>&2 2>&3) || exit 1
+    h=$(whiptail --backtitle "$bt" --inputbox "MariaDB / MySQL host or IP (the health data is kept there)" 9 70 "127.0.0.1" 3>&1 1>&2 2>&3) || exit 1
     p=$(whiptail --backtitle "$bt" --inputbox "Port" 9 60 "3306" 3>&1 1>&2 2>&3) || exit 1
     d=$(whiptail --backtitle "$bt" --inputbox "Database for the health data (created if the user may)" 9 70 "health" 3>&1 1>&2 2>&3) || exit 1
     u=$(whiptail --backtitle "$bt" --inputbox "User" 9 60 "health" 3>&1 1>&2 2>&3) || exit 1
@@ -57,6 +57,9 @@ ask_app_settings() {
     u=$(whiptail --backtitle "$bt" --inputbox "Its user" 9 60 "iosuite" 3>&1 1>&2 2>&3) || exit 1
     w=$(whiptail --backtitle "$bt" --passwordbox "Its password" 9 60 3>&1 1>&2 2>&3) || exit 1
     IOHEALTH_SUITE_DB="$h:$p/$d:$u:$w"
+  fi
+  if [[ -z "${IOHEALTH_PUBLIC_URL+x}" ]]; then
+    IOHEALTH_PUBLIC_URL=$(whiptail --backtitle "$bt" --inputbox "Public address behind your reverse proxy, e.g. https://health.example.com (empty: the address it is reached at)" 10 76 "" 3>&1 1>&2 2>&3) || exit 1
   fi
   if [[ -z "${IOHEALTH_COOKIE_DOMAIN+x}" ]]; then
     IOHEALTH_COOKIE_DOMAIN=$(whiptail --backtitle "$bt" --inputbox "Domain the sign-in is shared on, as for the other apps (e.g. example.com; empty: none)" 9 76 "" 3>&1 1>&2 2>&3) || exit 1
@@ -98,7 +101,7 @@ sha=$(curl -fsSL -H "Accept: application/vnd.github+json" "https://api.github.co
 curl -fsSL "https://github.com/avandeputte/ioHealth/archive/$sha.tar.gz" | tar xz
 src=$(ls -d */ | head -1)server
 mkdir -p /opt/iohealth/app
-for i in app static pyproject.toml run.sh update.sh setup.sh .env.example; do cp -R "$src/$i" /opt/iohealth/app/; done
+for i in app static proxmox pyproject.toml run.sh update.sh setup.sh Dockerfile docker-compose.yml config.env.example; do cp -R "$src/$i" /opt/iohealth/app/; done
 echo "$sha" > /opt/iohealth/app/COMMIT
 cd /tmp; rm -rf iohealth-src'
 if ! pct exec "$CTID" -- bash -c "$FETCH"; then msg_error "Could not fetch ioHealth from GitHub inside the container"; exit 1; fi
@@ -111,13 +114,12 @@ SECRETS="IOHEALTH_DB=$(printf '%q' "$IOHEALTH_DB")"$'\n'"IOHEALTH_SUITE_DB=$(pri
 SECF="$(mktemp)"; chmod 600 "$SECF"; printf '%s' "$SECRETS" > "$SECF"
 pct push "$CTID" "$SECF" /opt/iohealth/setup.env --perms 0600 --user 0 --group 0
 rm -f "$SECF"
-SETUP_CMD="cd /opt/iohealth/app && sh ./setup.sh --yes --no-system-deps --service --port '${IOHEALTH_PORT:-47800}' --tz '${IOHEALTH_TZ:-UTC}'"
-[[ -n "${IOHEALTH_COOKIE_DOMAIN:-}" ]] && SETUP_CMD+=" --cookie-domain '${IOHEALTH_COOKIE_DOMAIN}'"
+SETUP_CMD="cd /opt/iohealth/app && sh ./setup.sh --yes --no-system-deps --service --port '${IOHEALTH_PORT:-47800}' --tz '${IOHEALTH_TZ:-UTC}' --public-url '${IOHEALTH_PUBLIC_URL:-}' --cookie-domain '${IOHEALTH_COOKIE_DOMAIN:-}'"
 WRAPPED="set -a; . /opt/iohealth/setup.env; set +a; rm -f /opt/iohealth/setup.env; $SETUP_CMD > /opt/iohealth/setup.log 2>&1"
 if ! pct exec "$CTID" -- bash -c "$WRAPPED"; then
   msg_error "setup.sh failed inside the container; last lines of /opt/iohealth/setup.log:"
   pct exec "$CTID" -- tail -n 40 /opt/iohealth/setup.log || true
-  msg_error "Fix the cause (often: the MariaDB users may not connect from the container's address ${IP}), then run it again inside the container: pct exec $CTID -- bash -c \"$SETUP_CMD\" (the settings are kept in /opt/iohealth/app/.env)"
+  msg_error "Fix the cause (often: the MariaDB users may not connect from the container's address ${IP}), then run it again inside the container: pct exec $CTID -- bash -c \"$SETUP_CMD\" (the settings are kept in /opt/iohealth/app/config.env)"
   exit 1
 fi
 msg_ok "Setup finished"

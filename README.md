@@ -34,9 +34,9 @@ The server runs in any of three ways, as ioPix, ioNotes and ioContacts do; pick 
 
 | | how | where the settings live |
 |---|---|---|
-| [Docker](#docker-with-compose) | the image `ghcr.io/avandeputte/iohealth` with Compose or `docker run` | the compose file, `-e` flags or a `.env` file |
-| [Proxmox VE (LXC)](#proxmox-ve-lxc) | one command on the Proxmox host creates a container and sets the server up inside it | `/opt/iohealth/app/.env` in the container |
-| [Standalone](#standalone-any-linux-or-mac) | `setup.sh` on any Linux box or Mac: a Python virtual environment and a `systemd` service | `server/.env` |
+| [Docker](#docker-with-compose) | the image `ghcr.io/avandeputte/iohealth` with Compose or `docker run` | the compose file or `-e` flags |
+| [Proxmox VE (LXC)](#proxmox-ve-lxc) | one command on the Proxmox host creates a container and sets the server up inside it | `/opt/iohealth/app/config.env` in the container |
+| [Standalone](#standalone-any-linux-or-mac) | `setup.sh` on any Linux box or Mac: a Python virtual environment and a `systemd` service | `server/config.env` |
 
 Whichever way, it needs an existing MariaDB (or MySQL) server with two databases on it: one for the health data
 (created if the user may; tables are created and migrated at every start) and the **Shared ioSuite** database
@@ -46,8 +46,9 @@ both the phone's uploads and the web app; put it behind your reverse proxy for [
 
 ### Configuration
 
-All settings are environment variables (in the compose file, `-e` flags, or the `.env` file the LXC and standalone
-installs write; `setup.sh` asks for the important ones); never commit real values.
+The settings are in `config.env` in the app folder (`server/`; the LXC and standalone installs write it, `setup.sh` asks
+for the important ones, and `config.env.example` lists them all) or in the environment, which wins (the compose file,
+`-e` flags). Every app of the suite uses the same file name and the same names; never commit real values.
 
 | variable | required | meaning |
 |---|---|---|
@@ -57,12 +58,14 @@ installs write; `setup.sh` asks for the important ones); never commit real value
 | `DB_NAME` | no | default `health` |
 | `IOSUITE_DB_HOST`, `IOSUITE_DB_PORT` | no | the server with the Shared ioSuite database; default: the same as `DB_HOST` / `DB_PORT` |
 | `IOSUITE_DB_NAME`, `IOSUITE_DB_USER`, `IOSUITE_DB_PASSWORD` | yes | the Shared ioSuite database (accounts and suite-wide settings; name and user `iosuite` by default) and a user that may create tables in it |
-| `IOTHING_COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
+| `PUBLIC_URL` | no | the address people and the other apps reach ioHealth at (`https://health.example.com`); empty: the best address it is reached at |
+| `COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
 | `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty Shared ioSuite database (or create it from the sign-in screen instead) |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
 | `TZ` | no | fallback time zone (e.g. `Europe/Brussels`) for days and weeks; the browser sends its own, so this only matters for API calls without `tz` |
 | `MAP_TILE_URL`, `MAP_TILE_ATTRIBUTION` | no | map tiles for routes, default OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) |
-| `LISTEN_ADDR` | no | address the server listens on (inside the container, for Docker), default `:47800` |
+| `HOST`, `PORT` | no | where the server listens, default `0.0.0.0` and `47800` (every app of the suite has its own port) |
+| `FORWARDED_ALLOW_IPS` | no | the addresses allowed to pass on the visitor's address (your reverse proxy's), default `*` |
 | `AUTH_PROXY`… | no | sign-in at a reverse proxy or Cloudflare Access, see [HTTPS](#https) below |
 | `UPDATE_CHECK` | no | `0`: never ask GitHub whether a newer version exists (the daily check, see [Updating](#updating)) |
 | `LOG_FILE` | no | the server log shown at Maintenance › Updates and logs (`iohealth.log` next to the app; empty: no file) |
@@ -73,49 +76,9 @@ The image is `ghcr.io/avandeputte/iohealth` (public, `linux/amd64` and `linux/ar
 published as `ghcr.io/avandeputte/healthexport-receiver`; to upgrade, change the `image:` line and pull. Tags: `latest`
 (current `main`), `2.0.0` and other release versions, and one tag per branch while it's being worked on.
 
-Save this as `docker-compose.yml`, fill in the values, and run `docker compose up -d`. Every option the server
-understands is listed (the same file is in the repo as `server/docker-compose.ghcr.yml`):
-
-```yaml
-services:
-  iohealth:
-    image: ghcr.io/avandeputte/iohealth:latest   # or a version such as 2.0.0
-    container_name: iohealth
-    restart: unless-stopped
-    ports:
-      - "47800:47800"                 # host:container; change the host side if 47800 is taken
-    environment:
-      # --- The health data: MariaDB / MySQL (required) ---
-      DB_HOST: 192.168.1.10           # host name or IP of the database server
-      DB_PORT: "3306"
-      DB_USER: health
-      DB_PASSWORD: change-me
-      DB_NAME: health                 # created on first start if the user may; tables are always created/migrated
-      # --- The accounts and suite-wide settings: the Shared ioSuite database, as in ioPix, ioNotes and ioContacts ---
-      # IOSUITE_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
-      IOSUITE_DB_NAME: iosuite
-      IOSUITE_DB_USER: iosuite
-      IOSUITE_DB_PASSWORD: change-me
-      # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
-      # ADMIN_USER: alex                     # the first account, on an empty Shared ioSuite database
-      # ADMIN_PASSWORD: change-me-please
-      # --- Optional ---
-      TZ: Europe/Brussels             # fallback time zone for days and weeks; the browser normally sends its own
-      # MAP_TILE_URL: https://tile.openstreetmap.org/{z}/{x}/{y}.png   # map tiles for workout routes
-      # MAP_TILE_ATTRIBUTION: "&copy; OpenStreetMap contributors"
-      # LISTEN_ADDR: ":47800"           # address:port inside the container
-      # sign-in at Cloudflare Access (see HTTPS below): AUTH_PROXY: cloudflare, CF_ACCESS_TEAM, CF_ACCESS_AUD
-      # Serve HTTPS directly instead of behind a reverse proxy: set both and mount the files below.
-      # TLS_CERT_FILE: /certs/fullchain.pem
-      # TLS_KEY_FILE: /certs/privkey.pem
-    # volumes:
-    #   - /path/to/certs:/certs:ro
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:47800/v1/health', timeout=4)"]
-      interval: 30s
-      timeout: 5s
-      start_period: 30s
-```
+Save [`server/docker-compose.yml`](server/docker-compose.yml) (every option the server understands is in it), fill
+in the "CHANGE ME" values, and run `docker compose up -d`; it pulls the published image, and `docker compose up -d
+--build` in a clone builds it from the checkout instead.
 
 ```sh
 docker compose up -d
@@ -125,57 +88,18 @@ curl http://localhost:47800/v1/health        # {"ok":true,"schemaVersion":10}
 Then open `http://localhost:47800/` and sign in (or, on an empty account database, create the first admin right
 there). Update later with `docker compose pull && docker compose up -d`.
 
-<details>
-<summary>Keeping the secrets in a <code>.env</code> file instead</summary>
-
-If you'd rather not have the passwords inside the compose file, replace the `environment:` block with
-`env_file: .env` and put the settings in a `.env` next to it (`server/.env.example` is a template):
-
-```yaml
-services:
-  iohealth:
-    image: ghcr.io/avandeputte/iohealth:latest
-    container_name: iohealth
-    restart: unless-stopped
-    ports:
-      - "47800:47800"
-    env_file: .env
-```
-
-```dotenv
-# .env
-DB_HOST=192.168.1.10
-DB_PORT=3306
-DB_USER=health
-DB_PASSWORD=change-me
-DB_NAME=health
-IOSUITE_DB_NAME=iosuite
-IOSUITE_DB_USER=iosuite
-IOSUITE_DB_PASSWORD=change-me
-# IOTHING_COOKIE_DOMAIN=example.com
-# ADMIN_USER=alex
-# ADMIN_PASSWORD=change-me-please
-# TZ=Europe/Brussels
-# MAP_TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
-# LISTEN_ADDR=:47800
-# TLS_CERT_FILE=/certs/fullchain.pem
-# TLS_KEY_FILE=/certs/privkey.pem
-```
-</details>
 
 ### Docker: with plain `docker run`
 
 ```sh
 docker run -d --name iohealth --restart unless-stopped -p 47800:47800 \
-  -e DB_HOST=192.168.1.10 -e DB_USER=health -e DB_PASSWORD=change-me -e DB_NAME=health \
+  -e DB_HOST=db.example.lan -e DB_USER=health -e DB_PASSWORD=change-me -e DB_NAME=health \
   -e IOSUITE_DB_NAME=iosuite -e IOSUITE_DB_USER=iosuite -e IOSUITE_DB_PASSWORD=change-me \
   ghcr.io/avandeputte/iohealth:latest
 docker logs -f iohealth
 ```
 
-(or `--env-file .env` instead of the `-e` flags, with the `.env` shown above.) From a clone,
-`cd server && docker compose up -d` builds the image locally instead of pulling it (`docker-compose.yml` has
-`build: .`).
+(or `--env-file config.env` instead of the `-e` flags, with a copy of `server/config.env.example`.)
 
 ### Proxmox VE (LXC)
 
@@ -189,10 +113,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/mai
 creates a small Debian 13 container (2 CPUs, 1 GB, 4 GB disk by default), puts the server in `/opt/iohealth/app` and
 runs its `setup.sh` there. It asks, as the other apps' scripts do, for the MariaDB host, port, database, user and
 password of the health data, the same for the Shared ioSuite database (`iosuite` by default; the one ioPix, ioNotes
-and ioContacts use), the cookie domain, the first account (only used when that database is still empty), the time zone and the
+and ioContacts use), the public address, the cookie domain, the first account (only used when that database is still empty), the time zone and the
 port (47800), after the framework's own questions (resources, network). The passwords reach `setup.sh` through its environment (a root-only file pushed in and removed again),
 never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`. The MariaDB users must be allowed to connect from the container's address. For unattended runs `IOHEALTH_DB` and
-`IOHEALTH_SUITE_DB` (`host:port/db:user:password`), `IOHEALTH_TZ`, `IOHEALTH_PORT`, `IOHEALTH_COOKIE_DOMAIN` and
+`IOHEALTH_SUITE_DB` (`host:port/db:user:password`), `IOHEALTH_TZ`, `IOHEALTH_PORT`, `IOHEALTH_PUBLIC_URL`, `IOHEALTH_COOKIE_DOMAIN` and
 `IOHEALTH_ADMIN` (`name:password`) in the environment answer the questions in advance. `update` inside the container (or "Update now" in the web app) runs
 `update.sh`.
 
@@ -205,13 +129,14 @@ git clone https://github.com/avandeputte/ioHealth && cd ioHealth/server
 ./update.sh         # later: the latest code, same settings
 ```
 
-`setup.sh` takes flags instead of questions (`--db`, `--suite-db`, `--tz`, `--port`, `--cookie-domain`, `--admin`,
-`--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_SUITE_DB` and `IOHEALTH_ADMIN` in the environment),
-writes `.env` (readable by the owner only), makes `.venv` (Python 3.11 or later), installs the `iohealth` systemd
-service and waits until it answers. Without the service, `./run.sh` starts it in the foreground from the same `.env`; a
-launchd job `net.iothing.iohealth.server` on a Mac can run that script, and "Update now" in the web app restarts
+`setup.sh` takes flags instead of questions (`--db`, `--suite-db`, `--admin` or `--no-admin`, `--port`, `--public-url`,
+`--cookie-domain`, `--tz`, `--yes`, the same as every app of the suite; the passwords can come from `IOHEALTH_DB`,
+`IOHEALTH_SUITE_DB` and `IOHEALTH_ADMIN` in the environment), writes `config.env` (readable by the owner only), makes
+`.venv` (Python 3.11 or later), creates the first admin with `iosuite-shared admin`, installs the `iohealth` systemd
+service (`python -m app`) and waits until it answers. Without the service, `./run.sh` starts it in the foreground with
+the same `config.env`; a launchd job `net.iothing.iohealth.server` on a Mac can run that script, and "Update now" in the web app restarts
 either. `python -m pytest tests` (after `pip install -e ".[test]"`) runs the tests against a real MariaDB
-(`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`, `health`/`health`; it makes and drops
+(`IOSUITE_TEST_DB=host:port:user:password`, as in every app of the suite; default `127.0.0.1:3306:health:health`; it makes and drops
 databases of its own, `health_test`, `iosuite_test_iohealth` and `health_mig_test`, so the user needs `CREATE` and `DROP`).
 
 ### Updating
@@ -329,7 +254,7 @@ under More.
 **Accounts** are the ioThing suite's shared accounts ([iosuite-shared](https://github.com/avandeputte/iosuite-shared): the
 Shared ioSuite database in MariaDB, shared with ioPix, ioNotes and ioContacts), so one name, password and session serve every app, and
 someone signed in at `photos.example.com` is signed in at `health.example.com` too when the apps share a domain
-(`IOTHING_COOKIE_DOMAIN`). What is ioHealth's own is kept per app: the role an account holds here, its settings and
+(`COOKIE_DOMAIN`). What is ioHealth's own is kept per app: the role an account holds here, its settings and
 its health data. A *suite admin* is admin in every app.
 
 | who | can |

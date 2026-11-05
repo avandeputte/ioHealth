@@ -2550,7 +2550,7 @@ async function setServer() {
     row('Version', h('span', {}, `v${s.version}${s.installed !== 'unknown' ? ` (${s.installed.slice(0, 7)})` : ''} · `, h('a', { href: '#/maintenance/updates' }, 'Updates and logs'))),
     row('Database', `${s.database}, schema version ${s.schemaVersion}`),
     row('Time zone', s.timezone),
-    h('p', { class: 'small muted' }, 'The database, the time zone, the public address and the ports are set in the server’s environment (.env), not here.'))];
+    h('p', { class: 'small muted' }, 'The database, the time zone, the public address and the ports are set in the server’s config.env (or its environment), not here.'))];
 }
 
 // ---- Maintenance › Updates and logs (admins): the version card, the server log and Restart, the same page in every ioThing app

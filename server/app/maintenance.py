@@ -6,7 +6,7 @@ Maintenance answers from the server's own statistics: the row counts are informa
 COUNT(*) per table, which on tens of millions of samples and heartbeats took many seconds every time the page opened."""
 from fastapi import APIRouter
 from fastapi.responses import ORJSONResponse
-from iosuite_shared import users as shared
+from iosuite_shared import config as shared_config, users as shared
 
 from app import __version__, access, config, db, webapi
 
@@ -21,7 +21,7 @@ def _database() -> dict:
 
 
 def _suite_database() -> dict:
-    return {"host": config.env("IOSUITE_DB_HOST", config.DB_HOST), "name": config.SUITE_DB_NAME}
+    return {"host": shared_config.DB_HOST, "name": shared_config.DB_NAME}
 
 
 @router.get("/api/maintenance", dependencies=[access.admin])

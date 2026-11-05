@@ -1,14 +1,15 @@
 """Test set-up: a scratch health database and a scratch Shared ioSuite database on a real MariaDB, emptied before every test.
 
-IOHEALTH_TEST_DB_HOST / _PORT / _USER / _PASSWORD name the server (default 127.0.0.1:3306, health/health); the
-databases are health_test and iosuite_test_iohealth. The tests skip without a server. CI gets a service."""
+IOSUITE_TEST_DB=host:port:user:password names the server, as in every app of the suite (default
+127.0.0.1:3306:health:health); the databases are health_test and iosuite_test_iohealth. The tests skip without a
+server. CI gets a service."""
 import os
 
 import pymysql
 import pytest
 
-os.environ.update(DB_HOST=os.environ.get("IOHEALTH_TEST_DB_HOST", "127.0.0.1"), DB_PORT=os.environ.get("IOHEALTH_TEST_DB_PORT", "3306"),
-                  DB_USER=os.environ.get("IOHEALTH_TEST_DB_USER", "health"), DB_PASSWORD=os.environ.get("IOHEALTH_TEST_DB_PASSWORD", "health"),
+_h, _p, _u, _w = (os.environ.get("IOSUITE_TEST_DB", "").split(":", 3) + ["", "", "", ""])[:4]
+os.environ.update(DB_HOST=_h or "127.0.0.1", DB_PORT=_p or "3306", DB_USER=_u or "health", DB_PASSWORD=_w or ("" if _u else "health"),
                   DB_NAME="health_test", TZ="Europe/Brussels")
 os.environ.pop("ADMIN_USER", None)
 os.environ.pop("ADMIN_PASSWORD", None)
@@ -33,7 +34,7 @@ def _server_up() -> bool:
 
 def pytest_collection_modifyitems(config, items):
     if not _server_up():
-        skip = pytest.mark.skip(reason="no MariaDB at IOHEALTH_TEST_DB_HOST")
+        skip = pytest.mark.skip(reason="no MariaDB at IOSUITE_TEST_DB")
         for it in items:
             it.add_marker(skip)
 
