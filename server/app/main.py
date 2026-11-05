@@ -11,12 +11,12 @@ import logging.handlers
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from iosuite_shared import users as shared
 from iosuite_shared.proxyauth import remember_peer
 
-from app import config, db, maintenance, upload, webapi
+from app import __version__, config, db, maintenance, upload, webapi
 from app.auth import APP, auth, updater
 
 remember_peer()  # before uvicorn's forwarded-header rewrite runs: proxy sign-in trusts the real peer
@@ -31,9 +31,9 @@ if config.LOG_FILE:  # the server log that Maintenance › Updates and logs show
     except OSError as e:
         log.warning("no server log at %s: %s", config.LOG_FILE, e)
 
-# what a visitor may still fetch: the app shell (which shows the sign-in), the icons and the phone's endpoints
-OPEN_PATHS = ("/", "/index.html", "/app.js", "/app.css", "/favicon.svg", "/manifest.webmanifest", "/apple-touch-icon.png", "/v1/health")
-OPEN_PREFIXES = ("/vendor/", "/icon-", "/api/auth/", "/v1/")
+# what a visitor may still fetch: the app shell (which shows the sign-in), its files (/static/) and the phone's endpoints
+OPEN_PATHS = ("/", "/manifest.webmanifest", "/v1/health")
+OPEN_PREFIXES = ("/static/", "/api/auth/", "/v1/")
 
 
 @asynccontextmanager
@@ -65,8 +65,6 @@ async def _headers(request: Request, call_next):
     p = request.url.path
     if p.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
-    elif p in ("/", "/index.html", "/app.js", "/app.css"):
-        response.headers.setdefault("Cache-Control", "no-cache")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     return response
@@ -99,6 +97,23 @@ def _server_info() -> dict:
 
 app.include_router(auth.server_router(updater, log_file=config.LOG_FILE, info=_server_info))  # /api/server, /api/log: admins
 app.include_router(maintenance.router)  # /api/maintenance: admins
-app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    """The page, with the version stamped on the script and stylesheet: after an update the browser (and Cloudflare,
+    which caches .js and .css at the edge) fetches the new ones instead of serving what it kept."""
+    html = (config.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for f in ("static/app.js", "static/app.css"):
+        html = html.replace(f'"{f}"', f'"{f}?v={__version__}"')
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def manifest():
+    return FileResponse(config.STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 
 __all__ = ["app", "APP"]
