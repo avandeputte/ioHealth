@@ -3,5 +3,6 @@ __pycache__/
 *.egg-info/
 .venv/
 COMMIT
-update-result.txt
+.update-result
+*.log
 .update-stage/

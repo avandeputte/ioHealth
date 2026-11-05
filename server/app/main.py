@@ -7,6 +7,7 @@ password), whether sign-in is required at all (it always is here: health data is
 writes.
 """
 import logging
+import logging.handlers
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -15,13 +16,20 @@ from fastapi.staticfiles import StaticFiles
 from iothing_auth import users as shared
 from iothing_auth.proxyauth import remember_peer
 
-from app import config, db, maintenance, updates, upload, webapi
-from app.auth import APP, auth
+from app import config, db, maintenance, upload, webapi
+from app.auth import APP, auth, updater
 
 remember_peer()  # before uvicorn's forwarded-header rewrite runs: proxy sign-in trusts the real peer
 
 log = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+if config.LOG_FILE:  # the server log that Maintenance › Updates and logs shows; the app runs without it
+    try:
+        _fh = logging.handlers.RotatingFileHandler(config.LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logging.getLogger().addHandler(_fh)
+    except OSError as e:
+        log.warning("no server log at %s: %s", config.LOG_FILE, e)
 
 # what a visitor may still fetch: the app shell (which shows the sign-in), the icons and the phone's endpoints
 OPEN_PATHS = ("/", "/index.html", "/app.js", "/app.css", "/favicon.svg", "/manifest.webmanifest", "/apple-touch-icon.png", "/v1/health")
@@ -34,7 +42,7 @@ async def lifespan(_app):
     shared.init()
     db.migrate()
     webapi.start_backfill()
-    updates.start_daily()
+    updater.start_daily()
     log.info("ioHealth started, writing to %s:%s/%s (%s)", db.params()["host"], db.params()["port"], db.params()["database"],
              "accounts exist" if shared.any_users() else "no accounts yet: create the first one from the sign-in screen, inside your network")
     yield
@@ -81,7 +89,16 @@ app.include_router(auth.router())        # /api/auth/*: login, accounts, logout,
 app.include_router(auth.users_router())  # /api/users: this app's admins
 app.include_router(upload.router)
 app.include_router(webapi.router)
-app.include_router(maintenance.router)  # /api/server, /api/maintenance: admins
+
+
+def _server_info() -> dict:
+    """What Maintenance › Updates and logs and Settings › Server show beside the updater's own fields."""
+    p = db.params()
+    return {"timezone": config.TZ, "database": f"{p['host']}:{p['port']}/{p['database']}", "schemaVersion": db.schema_version()}
+
+
+app.include_router(auth.server_router(updater, log_file=config.LOG_FILE, info=_server_info))  # /api/server, /api/log: admins
+app.include_router(maintenance.router)  # /api/maintenance: admins
 app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
 
 __all__ = ["app", "APP"]

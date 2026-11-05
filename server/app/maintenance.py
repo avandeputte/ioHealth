@@ -1,15 +1,14 @@
-"""Admins: Settings › Server (the installed version, the update check and update.sh, app/updates.py) and Maintenance
-(the database and its tables, the hourly rollup, the last upload of every account), laid out as in ioContacts and
-ioCalendar.
+"""Admins: Maintenance › Storage and backups and Uploads (the database and its tables, the hourly rollup, the last
+upload of every account), laid out as in ioContacts and ioCalendar. The version, updates, restart and the server log
+(Maintenance › Updates and logs) are iothing_auth's server_router, mounted in app/main.py.
 
 Maintenance answers from the server's own statistics: the row counts are information_schema's estimates, not a
 COUNT(*) per table, which on tens of millions of samples and heartbeats took many seconds every time the page opened."""
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
+from fastapi import APIRouter
 from fastapi.responses import ORJSONResponse
 from iothing_auth import users as shared
 
-from app import __version__, access, config, db, updates, webapi
+from app import __version__, access, config, db, webapi
 
 router = APIRouter(default_response_class=ORJSONResponse)
 
@@ -24,38 +23,6 @@ def _database() -> dict:
 def _suite_database() -> dict:
     return {"host": config.env("IOTHING_AUTH_DB_HOST", config.DB_HOST), "name": config.SUITE_DB_NAME}
 
-
-# ---- Settings › Server
-
-@router.get("/api/server", dependencies=[access.admin])
-def server_info():
-    """The installed version, the last update check, whether update.sh can run here, the daily check switch."""
-    d = _database()
-    return {**updates.status(), "repo": updates.REPO, "branch": updates.BRANCH, "timezone": config.TZ,
-            "database": f"{d['host']}:{d['port']}/{d['name']}", "schemaVersion": d["schemaVersion"]}
-
-
-@router.post("/api/server", dependencies=[access.admin])
-async def server_action(request: Request):
-    """Body: {action: check | update, ref?} or {autoCheck: bool}; answers with the server info (or the check)."""
-    b = await request.json() if int(request.headers.get("content-length") or 0) else {}
-    if "autoCheck" in b:
-        if not config.UPDATE_CHECK:
-            raise HTTPException(409, "UPDATE_CHECK=0 in the environment keeps the daily check off")
-        updates.set_auto_check(bool(b["autoCheck"]))
-    action = b.get("action")
-    if action == "check":
-        return await run_in_threadpool(updates.check)
-    if action == "update":
-        try:
-            updates.run(str(b.get("ref") or ""))
-        except RuntimeError as e:
-            raise HTTPException(409, str(e))
-        return {"started": True}
-    return await run_in_threadpool(server_info)
-
-
-# ---- Maintenance
 
 @router.get("/api/maintenance", dependencies=[access.admin])
 def maintenance():

@@ -156,6 +156,7 @@ h1.ptitle .muted { font-size: 13px; font-weight: 400; margin-left: 4px; }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .spread { justify-content: space-between; }
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+pre.log { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0 0 4px; max-height: 420px; overflow: auto; font-size: 11px; line-height: 1.45; white-space: pre; }
 
 button, select, input {
   font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;

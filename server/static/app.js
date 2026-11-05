@@ -2421,13 +2421,13 @@ pages.day = async (main, arg) => {
     h('div', { style: { marginTop: '12px' } }, rangeBar(gl.stats.ranges)), rangeLegend(gl.stats.ranges, gl.target)));
 };
 
-// ---------- settings: tabs, as in ioContacts and ioCalendar (#/settings/account … #/settings/server) ----------
-// Each tab loads only what it shows. The account's own tabs come first, then the admins' (users, sign-in, the server
-// and its updates).
+// ---------- settings: tabs, as in every ioThing app (#/settings/account … #/settings/server) ----------
+// Settings is what is configured, Maintenance what is run or checked. Each tab loads only what it shows. The account's
+// own tabs come first, then the admins' (users and sign-in, the server).
 
-const SETTINGS_TABS = () => [['account', 'Account'], ['devices', 'Apps and devices'], ['display', 'Display'], ['health', 'Health'], ['goals', 'Goals and alerts'],
-  ...(isAdmin() ? [['users', 'Users'], ['signin', 'Sign-in at the proxy'], ['server', 'Server']] : [])];
-const MAINT_TABS = [['database', 'Database'], ['uploads', 'Uploads']];
+const SETTINGS_TABS = () => [['account', 'Account'], ['display', 'Display'], ['devices', 'Apps and devices'], ['health', 'Health'], ['goals', 'Goals and alerts'],
+  ...(isAdmin() ? [['users', 'Users and sign-in'], ['server', 'Server']] : [])];
+const MAINT_TABS = [['uploads', 'Uploads'], ['storage', 'Storage and backups'], ['updates', 'Updates and logs']];
 
 /** The page title and a row of tabs linking to #/<view>/<tab> (#/<view>?tab=<tab>, the older spelling, still works).
  *  Draws at once; the tab fills the returned body when its data is in. */
@@ -2447,7 +2447,7 @@ function tabbedPage(main, view, ic, title, tabs, arg, params) {
 pages.settings = async (main, arg, params) => {
   const { tab, body } = tabbedPage(main, 'settings', 'gear', 'Settings', SETTINGS_TABS(), arg, params);
   const els = await ({ account: setAccount, devices: setDevices, display: setDisplay, health: setHealth, goals: setGoals,
-    users: async () => [await usersCard()], signin: async () => [await proxyCard()], server: setServer }[tab])(body);
+    users: async () => [await usersCard(), await proxyCard()], server: setServer }[tab])(body);
   if (els) body.replaceChildren(...els.filter(Boolean));
 };
 
@@ -2541,9 +2541,22 @@ async function setGoals() {
       alertIn('sync', 'No sync from the iPhone for', 'hours'))];
 }
 
-// ---- Settings › Server (admins): the installed version and its updates, as ioContacts' and ioCalendar's Server tab
+// ---- Settings › Server (admins): what this server runs on. The version and its updates are under Maintenance.
 
-async function setServer(el) {
+async function setServer() {
+  const s = await authApi('api/server');
+  const row = (label, detail) => h('div', { class: 'srow' }, h('div', {}, h('b', {}, label), h('div', { class: 'note' }, detail)));
+  return [card('This server',
+    row('Version', h('span', {}, `v${s.version}${s.installed !== 'unknown' ? ` (${s.installed.slice(0, 7)})` : ''} · `, h('a', { href: '#/maintenance/updates' }, 'Updates and logs'))),
+    row('Database', `${s.database}, schema version ${s.schemaVersion}`),
+    row('Time zone', s.timezone),
+    h('p', { class: 'small muted' }, 'The database, the time zone, the public address and the ports are set in the server’s environment (.env), not here.'))];
+}
+
+// ---- Maintenance › Updates and logs (admins): the version card, the server log and Restart, the same page in every ioThing app
+
+async function maintUpdates() {
+  const el = h('div');
   const draw = async () => {
     let s;
     try { s = await authApi('api/server'); } catch (e) { el.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
@@ -2551,7 +2564,7 @@ async function setServer(el) {
     const c = s.check, p = s.progress, last = s.lastUpdate;
     const state = h('p', { style: { marginTop: 0 }, class: p.error || (c && c.status === 'error') ? 'error' : '' }, p.running ? 'Updating… ioHealth restarts when it is done, and this page reloads.'
       : p.error ? `The last update failed: ${p.error}`
-        : !c ? `You have v${s.version}${s.installed !== 'unknown' ? ` (${s.installed})` : ''}.`
+        : !c ? `You have v${s.version}${s.installed !== 'unknown' ? ` (${s.installed.slice(0, 7)})` : ''}.`
           : c.status === 'current' ? `v${s.version} is the latest version.`
             : c.status === 'update' ? `You have v${s.version}; ${c.remoteVersion ? `v${c.remoteVersion}` : 'a newer build'} is available${c.remoteDate ? ` (${c.remoteDate})` : ''}${c.remoteMessage ? `: ${c.remoteMessage.replace(/^v\d+\.\d+\.\d+:\s*/, '')}` : ''}.`
               : `Could not check: ${c.error}`);
@@ -2570,15 +2583,52 @@ async function setServer(el) {
         try { await post({ autoCheck: e.target.checked }); toast('Saved'); refreshStatus(); draw(); } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
       } }), h('span', {}, 'Check for a new version once a day (only GitHub’s public list of changes is asked; nothing about this server is sent)')),
       s.autoCheckLocked ? h('p', { class: 'muted small' }, 'UPDATE_CHECK=0 in the environment keeps it off.') : null,
-      h('p', { class: 'muted small' }, `Follows ${s.repo} (${s.branch}). Database ${s.database}, schema version ${s.schemaVersion}; default time zone ${s.timezone}.`)));
+      h('p', { class: 'muted small' }, `Follows ${s.repo} (${s.branch}). `, h('a', { href: `https://github.com/${s.repo}/commits/${s.branch}`, target: '_blank', rel: 'noopener' }, 'Change log'), '.')),
+    logCard(),
+    card('Restart',
+      h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Stops ioHealth; the service manager (systemd, launchd or Docker) starts it again within seconds. Nothing is lost; the page reloads when it is back.'),
+      h('div', { class: 'toolbar' }, h('button', { onclick: async () => {
+        if (!await dialog('Restart ioHealth', h('p', {}, 'Restart the server now? Everyone is disconnected for a few seconds.'), [{ label: 'Cancel', value: null }, { label: 'Restart', primary: true, value: true }])) return;
+        try { await post({ action: 'restart' }); } catch (e) { toast(e.message); return; }
+        toast('Restarting…');
+        const until = Date.now() + 90000, gone = Date.now() + 3000;
+        const look = async () => {
+          try { const r = await fetch('api/status', { credentials: 'same-origin' }); if (r.ok && Date.now() > gone) { location.reload(); return; } } catch { /* down */ }
+          if (Date.now() < until) setTimeout(look, 2000); else toast('ioHealth did not come back; check the service.');
+        };
+        setTimeout(look, 3000);
+      } }, 'Restart ioHealth'))));
     if (p.running) setTimeout(() => { if (el.isConnected) draw(); }, 4000);
   };
   await draw();
+  return [el];
+}
+
+/** The tail of the server log (GET /api/log from iothing-auth): a level filter, a search, Reload and Download. */
+function logCard() {
+  const level = h('select', {}, [['any', 'Everything'], ['warning', 'Warnings and errors'], ['error', 'Errors'], ['auth', 'Sign-ins']].map(([v, l]) => h('option', { value: v }, l)));
+  const contains = h('input', { placeholder: 'Contains…', style: { width: '200px' } });
+  const requests = h('input', { type: 'checkbox' });
+  const out = h('pre', { class: 'log' }, 'Loading…'), note = h('p', { class: 'small muted' });
+  const load = async () => {
+    try {
+      const r = await authApi(`api/log?lines=300&level=${level.value}&contains=${encodeURIComponent(contains.value)}&requests=${requests.checked ? 1 : 0}`);
+      out.textContent = r.lines.length ? r.lines.join('\n') : (r.note || 'Nothing matches.');
+      note.textContent = r.note ? '' : `${r.file}: ${(r.size_bytes / 1024).toFixed(0)} kB, the last ${r.returned} lines.`;
+      out.scrollTop = out.scrollHeight;
+    } catch (e) { out.textContent = e.message; }
+  };
+  level.onchange = load; requests.onchange = load; contains.onchange = load;
+  setTimeout(load, 0);
+  return card('Server log',
+    h('div', { class: 'toolbar' }, level, contains, h('label', { class: 'row', style: { gap: '6px' } }, requests, 'Requests too'),
+      h('button', { onclick: load }, 'Reload'), h('a', { href: 'api/log/download' }, h('button', {}, 'Download'))),
+    out, note);
 }
 
 const DISMISSED_UPDATE = 'iohealth.updateDismissed';
 /** The "a newer version is out" card, for admins, when the daily check found one (as in the other ioThing apps):
- *  Update now runs update.sh from here and the page reloads with the new version; Details opens Settings › Server;
+ *  Update now runs update.sh from here and the page reloads with the new version; Details opens Maintenance › Updates and logs;
  *  dismissed per version in this browser. */
 function updateBanner(u) {
   let b = $('#updbanner');
@@ -2588,7 +2638,7 @@ function updateBanner(u) {
   if (b) b.remove();
   const text = h('div', {}, h('b', {}, u.version ? `ioHealth ${u.version} is available` : 'A newer build of ioHealth is available'),
     h('div', { class: 'muted' }, `You have v${window.healthStatus?.version || '?'}. ${(u.message || '').replace(/^v\d+\.\d+\.\d+:\s*/, '').slice(0, 140)}`));
-  const more = h('a', { href: '#/settings/server', onclick: () => b.remove() }, h('button', { class: 'small-btn' }, 'Details'));
+  const more = h('a', { href: '#/maintenance/updates', onclick: () => b.remove() }, h('button', { class: 'small-btn' }, 'Details'));
   const run = u.canRun ? h('button', { class: 'small-btn primary', onclick: async () => {
     if (!await dialog('Update ioHealth', h('p', {}, `Fetch ${u.version ? 'version ' + u.version : 'the latest version'}, refresh the packages and restart ioHealth? The page reloads when the new version is up.`), [{ label: 'Cancel', value: null }, { label: 'Update now', primary: true, value: true }])) return;
     runUpdate((msg, failed) => { run.hidden = more.hidden = true; text.replaceChildren(h('b', {}, failed ? 'The update did not finish' : 'Updating…'), h('div', { class: 'muted' }, msg)); });
@@ -2620,7 +2670,7 @@ async function runUpdate(onState) {
   return true;
 }
 
-// ---------- maintenance (admins): the data, in tabs as in ioContacts (#/maintenance/database, #/maintenance/uploads) ----------
+// ---------- maintenance (admins): what is run or checked, in tabs as in every ioThing app (#/maintenance/uploads, storage, updates) ----------
 
 function fmtBytes(n) {
   if (!n) return '0 B';
@@ -2632,10 +2682,10 @@ function fmtBytes(n) {
 pages.maintenance = async (main, arg, params) => {
   if (!isAdmin()) { main.replaceChildren(h('p', { class: 'empty' }, 'Maintenance is for admins. Sign in as an admin to see it.')); return; }
   const { tab, body } = tabbedPage(main, 'maintenance', 'wrench', 'Maintenance', MAINT_TABS, arg, params);
-  body.replaceChildren(...await ({ database: maintDatabase, uploads: maintUploads }[tab])());
+  body.replaceChildren(...await ({ uploads: maintUploads, storage: maintStorage, updates: maintUpdates }[tab])());
 };
 
-async function maintDatabase() {
+async function maintStorage() {
   const m = await authApi('api/maintenance');
   const d = m.database, n = Object.fromEntries(d.tables.map(t => [t.name, t.rows]));
   const row = (label, detail) => h('div', { class: 'srow' }, h('div', {}, h('b', {}, label), h('div', { class: 'note' }, detail)));
@@ -2645,7 +2695,8 @@ async function maintDatabase() {
     row('Hourly rollup', `Charts over months or years read sample_hourly instead of every sample. ${m.rollup.ready} of ${m.rollup.total} types are rolled up${m.rollup.ready < m.rollup.total ? '; the rest is being filled in the background, one type and month at a time' : ''}.`),
     h('div', { class: 'scroll' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Table'), h('th', { class: 'r' }, 'Rows (about)'), h('th', { class: 'r' }, 'Size'))),
       h('tbody', {}, d.tables.map(t => h('tr', {}, h('td', {}, t.name), h('td', { class: 'r num' }, fmtCompact(t.rows)), h('td', { class: 'r num' }, fmtBytes(t.bytes))))))),
-    h('p', { class: 'small muted' }, 'Row counts are the database’s own estimates, which it keeps up to date as data arrives; counting every row of the large tables would take many seconds.'))];
+    h('p', { class: 'small muted' }, 'Row counts are the database’s own estimates, which it keeps up to date as data arrives; counting every row of the large tables would take many seconds.')),
+  card('Backups', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'Everything is in the database: back it up with mysqldump (or the container’s backup) and nothing else is needed. The iPhone keeps the original data in Apple Health, so a full resync from the app fills an empty server again.'))];
 }
 
 async function maintUploads() {
@@ -2805,11 +2856,11 @@ function renderUserMenu() {
   const btn = h('button', { class: 'avatar-btn', title: me.user.name, 'aria-label': 'Account', onclick: () => menu(btn, [
     { head: `${me.user.name} · ${me.user.role}${me.signedInBy === 'cloudflare' ? ' · via Cloudflare' : ''}` },
     { label: 'Account', action: () => { location.hash = '#/settings/account'; } },
-    { label: 'Connect the iPhone app', action: () => { location.hash = '#/settings/devices'; } },
+    { label: 'Connect apps and devices', action: () => { location.hash = '#/settings/devices'; } },
+    { label: `Appearance: ${{ auto: 'system', light: 'light', dark: 'dark' }[settings.theme] || 'system'}`, action: () => { settings.theme = { auto: 'light', light: 'dark', dark: 'auto' }[settings.theme] || 'light'; saveSettings(); applyTheme(); toast(`Appearance: ${settings.theme === 'auto' ? 'system' : settings.theme}`); } },
     { label: 'Settings', action: () => { location.hash = '#/settings'; } },
     isAdmin() ? { label: 'Maintenance', action: () => { location.hash = '#/maintenance'; } } : null,
-    me.user.passwordless ? null : { label: 'Change password', action: changePassword },
-    { label: 'Sign out everywhere', action: signOutOthers },
+    { label: 'Sign out everywhere else', action: signOutOthers },
     '-',
     { label: 'Sign out', action: signOut },
   ]) }, avatar(me.user));

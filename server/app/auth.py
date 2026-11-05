@@ -8,9 +8,12 @@ Roles: a viewer sees their own data; an editor can also upload it (the iPhone ap
 app password); an admin can also manage the accounts and the sign-in settings.
 """
 import logging
+import os
+import subprocess
 
 from fastapi import HTTPException, Request
 from iothing_auth.fastapi import Auth
+from iothing_auth.updates import Updater
 
 from app import __version__, config
 
@@ -21,6 +24,35 @@ log = logging.getLogger("app.auth")
 # written on the first request, so the start page (ioSuite) and the other apps find it
 auth = Auth(APP, app_label="ioHealth", version=__version__, public_url=config.PUBLIC_URL or None,
             description="Health and fitness", color="#e8445a", icon="/favicon.svg")
+
+
+class HealthUpdater(Updater):
+    """The suite's updater (the daily check, update.sh, restart, the MCP token, the server log) for a server that lives
+    in the `server` folder of its repository: a checkout's .git is one level up from the app folder."""
+
+    def _git_root(self):
+        for base in (self.root, self.root.parent):
+            if (base / ".git").exists():
+                return base
+        return None
+
+    def _read_commit(self) -> str:
+        base = self._git_root()
+        if base is not None:
+            try:
+                return subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(base), capture_output=True, text=True, timeout=10).stdout.strip() or "unknown"
+            except (OSError, subprocess.SubprocessError):
+                return "unknown"
+        return super()._read_commit()  # an image or an installed copy: the COMMIT file
+
+    def _writable(self) -> bool:
+        git = self._git_root()
+        paths = [self.root] + [p for p in (self.root / ".venv", git / ".git" if git else None) if p is not None and p.exists()]
+        return all(os.access(str(p), os.W_OK) for p in paths)
+
+
+updater = HealthUpdater(APP, __version__, config.APP_DIR, repo=config.env("IOHEALTH_REPO", "avandeputte/ioHealth"),
+                        version_file="server/app/__init__.py", user_agent="iohealth")
 
 
 def me(request: Request) -> dict:
