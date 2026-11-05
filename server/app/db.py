@@ -234,9 +234,62 @@ def _multi_user():
     return run
 
 
+# 11: the suite naming convention: every table, view and index takes ioHealth's prefix (hlt_), so the apps can share one
+# database; inserted_at -> created_at, `key` -> name, sync_log.`system` -> os, web_settings -> hlt_user_settings (they
+# are per account). Renames only: instant on MariaDB however big the table, every row kept.
+RENAME_TABLES = {t: "hlt_" + t for t in ("characteristics", "samples", "workouts", "workout_statistics", "workout_events", "workout_activities",
+                                         "workout_route_points", "heartbeats", "activity_summaries", "deleted_objects", "sync_log",
+                                         "sample_hourly", "sample_hourly_ready")}
+RENAME_TABLES["web_settings"] = "hlt_user_settings"
+_STAMPED = ("hlt_samples", "hlt_workouts", "hlt_workout_statistics", "hlt_workout_events", "hlt_workout_activities", "hlt_workout_route_points",
+            "hlt_heartbeats", "hlt_activity_summaries", "hlt_characteristics", "hlt_deleted_objects")
+RENAME_COLUMNS = {
+    **{t: {"inserted_at": "created_at"} for t in _STAMPED},
+    "hlt_characteristics": {"inserted_at": "created_at", "key": "name"},
+    "hlt_user_settings": {"key": "name"},
+    "hlt_sync_log": {"system": "os"},
+}
+RENAME_INDEXES = {
+    "hlt_samples": {"idx_samples_type_start": "idx_hlt_samples_type_start", "idx_samples_inserted": "idx_hlt_samples_created"},
+    "hlt_workouts": {"idx_workouts_start": "idx_hlt_workouts_start"},
+    "hlt_workout_events": {"idx_events_workout": "idx_hlt_workout_events_workout"},
+    "hlt_workout_activities": {"idx_activities_workout": "idx_hlt_workout_activities_workout"},
+    "hlt_workout_route_points": {"idx_route_points_workout": "idx_hlt_workout_route_points_workout"},
+    "hlt_sample_hourly": {"idx_hourly_type_hour": "idx_hlt_sample_hourly_type_hour"},
+    "hlt_sync_log": {"idx_sync_log_user": "idx_hlt_sync_log_user"},
+}
+
+
+def _naming_convention(con):
+    from iosuite_shared import schema
+    with con.cursor() as cur:
+        cur.execute("DROP VIEW IF EXISTS sample_delay_by_type, sample_delay_by_day")  # they name the old table and column
+        done = schema.rename(cur, RENAME_TABLES, RENAME_COLUMNS, RENAME_INDEXES)
+        cur.execute(DELAY_BY_TYPE)
+        cur.execute(DELAY_BY_DAY)
+    if done:
+        log.info("renamed to the suite naming convention: %d tables, columns and indexes", len(done))
+
+
+# how long samples take to reach the database, per account and type, and per day of arrival (UTC)
+DELAY_BY_TYPE = """CREATE OR REPLACE VIEW hlt_sample_delay_by_type AS
+    SELECT user_id, type, COUNT(*) AS samples,
+        ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, created_at)) / 60, 1) AS min_delay_min,
+        ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, created_at)) / 60, 1) AS avg_delay_min,
+        ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, created_at)) / 60, 1) AS max_delay_min,
+        MAX(end_date) AS latest_sample, MAX(created_at) AS latest_arrival
+    FROM hlt_samples WHERE created_at IS NOT NULL GROUP BY user_id, type"""
+DELAY_BY_DAY = """CREATE OR REPLACE VIEW hlt_sample_delay_by_day AS
+    SELECT user_id, DATE(created_at) AS day, type, COUNT(*) AS samples,
+        ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, created_at)) / 60, 1) AS min_delay_min,
+        ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, created_at)) / 60, 1) AS avg_delay_min,
+        ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, created_at)) / 60, 1) AS max_delay_min
+    FROM hlt_samples WHERE created_at IS NOT NULL GROUP BY user_id, DATE(created_at), type"""
+
+
 def migrations() -> list:
-    """Applied in order, once each, and recorded in schema_version. Append; never edit one that has shipped (the
-    first eight are the Go receiver's, unchanged)."""
+    """Applied in order, once each, and recorded in hlt_schema_version. Append; never edit one that has shipped (the
+    first eight are the Go receiver's, unchanged; they make the tables under their old names, which 11 renames)."""
     return [
         # 1: the Mac app's SQLite tables, minus ECGs
         ["CREATE TABLE IF NOT EXISTS characteristics (`key` VARCHAR(64) PRIMARY KEY, value TEXT)",
@@ -331,15 +384,17 @@ def migrations() -> list:
                 ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS avg_delay_min,
                 ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS max_delay_min
             FROM samples WHERE inserted_at IS NOT NULL GROUP BY user_id, DATE(inserted_at), type"""],
+        # 11: the suite naming convention (hlt_ tables)
+        [_naming_convention],
     ]
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 _lock = threading.Lock()
 
 
 def schema_version() -> int:
-    return one("SELECT COALESCE(MAX(version), 0) FROM schema_version")[0]
+    return one("SELECT COALESCE(MAX(version), 0) FROM hlt_schema_version")[0]
 
 
 def pending() -> bool:
@@ -353,8 +408,12 @@ def migrate():
     """Bring the schema up to date."""
     with _lock, conn() as con:
         with con.cursor() as cur:
-            cur.execute("CREATE TABLE IF NOT EXISTS schema_version (version INT PRIMARY KEY, applied_at DATETIME(3) NOT NULL)" + TABLE_OPTIONS)
-            cur.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version")
+            # before 11 the table was schema_version
+            cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'schema_version'")
+            if cur.fetchone()[0]:
+                cur.execute("RENAME TABLE schema_version TO hlt_schema_version")
+            cur.execute("CREATE TABLE IF NOT EXISTS hlt_schema_version (version INT PRIMARY KEY, applied_at DATETIME(3) NOT NULL)" + TABLE_OPTIONS)
+            cur.execute("SELECT COALESCE(MAX(version), 0) FROM hlt_schema_version")
             current = cur.fetchone()[0]
         steps = migrations()
         assert len(steps) == SCHEMA_VERSION
@@ -372,5 +431,5 @@ def migrate():
                     except pymysql.MySQLError as e:
                         raise RuntimeError(f"migration {version}: {e}\n{stmt}") from e
             with con.cursor() as cur:
-                cur.execute("INSERT INTO schema_version VALUES (%s, UTC_TIMESTAMP(3))", (version,))
+                cur.execute("INSERT INTO hlt_schema_version VALUES (%s, UTC_TIMESTAMP(3))", (version,))
             log.info("applied schema migration %d", version)

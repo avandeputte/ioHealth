@@ -19,8 +19,7 @@ os.environ["IOSUITE_DB_PASSWORD"] = os.environ["DB_PASSWORD"]
 
 from app import db  # noqa: E402
 
-HEALTH_TABLES = ("characteristics", "samples", "workouts", "workout_statistics", "workout_events", "workout_activities", "workout_route_points",
-                 "heartbeats", "activity_summaries", "deleted_objects", "sync_log", "sample_hourly", "sample_hourly_ready", "web_settings")
+HEALTH_TABLES = tuple(db.RENAME_TABLES.values())
 
 
 def _server_up() -> bool:
@@ -60,10 +59,10 @@ def clean(_client):
     with db.conn() as con, con.cursor() as cur:
         for t in HEALTH_TABLES:
             cur.execute(f"DELETE FROM {t}")
-    authdb.ex("DELETE FROM users")
-    authdb.ex("ALTER TABLE users AUTO_INCREMENT = 1")
-    authdb.ex("DELETE FROM settings")
-    authdb.ex("DELETE FROM suite_apps")
+    authdb.ex("DELETE FROM ios_users")
+    authdb.ex("ALTER TABLE ios_users AUTO_INCREMENT = 1")
+    authdb.ex("DELETE FROM ios_settings")
+    authdb.ex("DELETE FROM ios_apps")
     auth._registered = False
     suite.invalidate()
     users.invalidate()

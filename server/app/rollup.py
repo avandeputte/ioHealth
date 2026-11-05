@@ -52,11 +52,11 @@ def recompute(cur, user_id, typ: str, start: datetime, end: datetime):
     every account when user_id is None."""
     who = "" if user_id is None else " AND user_id = %s"
     args = () if user_id is None else (user_id,)
-    cur.execute("DELETE FROM sample_hourly WHERE type = %s AND hour >= %s AND hour < %s" + who, (typ, start, end) + args)
-    cur.execute(f"""INSERT INTO sample_hourly (user_id, type, hour, source_name, sum, n, min, max)
+    cur.execute("DELETE FROM hlt_sample_hourly WHERE type = %s AND hour >= %s AND hour < %s" + who, (typ, start, end) + args)
+    cur.execute(f"""INSERT INTO hlt_sample_hourly (user_id, type, hour, source_name, sum, n, min, max)
         SELECT user_id, type, DATE_FORMAT(start_date, '%%Y-%%m-%%d %%H:00:00') AS h, COALESCE(source_name, ''),
             SUM({HOURLY_VALUE}), COUNT(*), MIN({HOURLY_VALUE}), MAX({HOURLY_VALUE})
-        FROM samples WHERE type = %s AND start_date >= %s AND start_date < %s AND (value IS NOT NULL OR kind = 'category'){who}
+        FROM hlt_samples WHERE type = %s AND start_date >= %s AND start_date < %s AND (value IS NOT NULL OR kind = 'category'){who}
         GROUP BY user_id, h, COALESCE(source_name, '')""", (typ, start, end) + args)
 
 
@@ -80,9 +80,9 @@ def backfill(ready: Ready, done=None):
     """Fill sample_hourly for every type not yet marked ready, a month per transaction, and mark each type ready when
     it's done. Safe to interrupt: a restart redoes the unfinished type."""
     try:
-        for (t,) in db.q("SELECT type FROM sample_hourly_ready"):
+        for (t,) in db.q("SELECT type FROM hlt_sample_hourly_ready"):
             ready.add(t)
-        todo = [r for r in db.q("SELECT type, MIN(start_date), MAX(start_date) FROM samples GROUP BY type") if not ready.has(r[0])]
+        todo = [r for r in db.q("SELECT type, MIN(start_date), MAX(start_date) FROM hlt_samples GROUP BY type") if not ready.has(r[0])]
     except Exception as e:
         log.warning("hourly rollup: %s", e)
         return
@@ -101,7 +101,7 @@ def backfill(ready: Ready, done=None):
                 log.warning("hourly rollup: %s %s: %s (will retry on next start)", typ, month.strftime("%Y-%m"), e)
                 return
             month = nxt
-        db.ex("INSERT IGNORE INTO sample_hourly_ready (type) VALUES (%s)", (typ,))
+        db.ex("INSERT IGNORE INTO hlt_sample_hourly_ready (type) VALUES (%s)", (typ,))
         ready.add(typ)
         if done:
             done()

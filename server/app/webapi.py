@@ -178,7 +178,7 @@ def status(request: Request):
     def f():
         out = {"schemaVersion": db.schema_version(), "version": __version__, "commit": updater.local_commit()[:7],
                "tiles": {"url": config.MAP_TILE_URL, "attribution": config.MAP_TILE_ATTRIBUTION}}
-        r = db.one("SELECT started_at, finished_at, device, items FROM sync_log WHERE user_id = %s ORDER BY id DESC LIMIT 1", (u,))
+        r = db.one("SELECT started_at, finished_at, device, items FROM hlt_sync_log WHERE user_id = %s ORDER BY id DESC LIMIT 1", (u,))
         if r:
             out["lastSync"] = {"started": db.unix(r[0]), "finished": db.unix(r[1]), "device": r[2] or "", "items": r[3] or 0}
             out["latestArrival"] = db.unix(r[1] or r[0])
@@ -200,7 +200,7 @@ def all_type_names() -> list:
     """Every type anyone has; cached a few minutes. GROUP BY, not DISTINCT: MariaDB answers it from the type index by
     jumping from one type to the next (a loose index scan), where DISTINCT reads every sample's index entry."""
     if time.time() - _all_types["at"] > 300:
-        _all_types.update(v=[r[0] for r in db.q("SELECT type FROM samples GROUP BY type")], at=time.time())
+        _all_types.update(v=[r[0] for r in db.q("SELECT type FROM hlt_samples GROUP BY type")], at=time.time())
     return _all_types["v"]
 
 
@@ -209,14 +209,14 @@ _kinds = {}
 
 def kind_of(t: str) -> str:
     if t not in _kinds:
-        r = db.one("SELECT kind FROM samples WHERE type = %s LIMIT 1", (t,))
+        r = db.one("SELECT kind FROM hlt_samples WHERE type = %s LIMIT 1", (t,))
         _kinds[t] = r[0] if r else ""
     return _kinds[t]
 
 
 def type_list(u: int) -> list:
     def f():
-        rolled = {r[0]: r for r in db.q("SELECT type, SUM(n), MIN(hour), MAX(hour) FROM sample_hourly WHERE user_id = %s GROUP BY type", (u,))}
+        rolled = {r[0]: r for r in db.q("SELECT type, SUM(n), MIN(hour), MAX(hour) FROM hlt_sample_hourly WHERE user_id = %s GROUP BY type", (u,))}
         out = []
         for name in all_type_names():
             if ready.has(name) and name in rolled:
@@ -225,11 +225,11 @@ def type_list(u: int) -> list:
             elif ready.has(name) and kind_of(name) in ("quantity", "category"):
                 continue  # every sample of these kinds is in the rollup: none of this account's
             else:
-                n, first, last = db.one("SELECT COUNT(*), MIN(start_date), MAX(start_date) FROM samples WHERE type = %s AND user_id = %s", (name, u))
+                n, first, last = db.one("SELECT COUNT(*), MIN(start_date), MAX(start_date) FROM hlt_samples WHERE type = %s AND user_id = %s", (name, u))
                 if not n:
                     continue
                 t = {"type": name, "count": int(n), "first": ts(first), "last": ts(last), "since": last}
-            r = db.one("SELECT kind, unit, start_date FROM samples WHERE type = %s AND user_id = %s AND start_date >= %s ORDER BY start_date DESC LIMIT 1",
+            r = db.one("SELECT kind, unit, start_date FROM hlt_samples WHERE type = %s AND user_id = %s AND start_date >= %s ORDER BY start_date DESC LIMIT 1",
                        (name, u, t.pop("since")))
             if not r:
                 continue
@@ -274,7 +274,7 @@ RING_TYPES = [
 
 
 def ring_types(u: int) -> list:
-    n, first, last = db.one("SELECT COUNT(*), MIN(date), MAX(date) FROM activity_summaries WHERE user_id = %s", (u,))
+    n, first, last = db.one("SELECT COUNT(*), MIN(date), MAX(date) FROM hlt_activity_summaries WHERE user_id = %s", (u,))
     if not n:
         return []
 
@@ -289,7 +289,7 @@ def ring_series(u: int, info: dict, frm, to, bucket: str, loc) -> dict:
     if bucket in ("raw", "hour"):
         bucket = "day"
     rows = []
-    for d, v in db.q(f"SELECT date, {expr} FROM activity_summaries WHERE user_id = %s AND date >= %s AND date <= %s ORDER BY date",
+    for d, v in db.q(f"SELECT date, {expr} FROM hlt_activity_summaries WHERE user_id = %s AND date >= %s AND date <= %s ORDER BY date",
                      (u, aware(frm).astimezone(loc).strftime("%Y-%m-%d"), (aware(to) - timedelta(seconds=1)).astimezone(loc).strftime("%Y-%m-%d"))):
         if v is None:
             continue
@@ -327,7 +327,7 @@ def series_for(u: int, name: str, frm, to, bucket: str, loc) -> dict:
         if info["kind"] == "category":
             raise BadRequest("raw is only for quantity types")
         reply["points"] = [{"t": ts(t), "v": v, "n": 1} for t, v in db.q(
-            """SELECT start_date, value FROM samples WHERE type = %s AND user_id = %s AND start_date >= %s AND start_date < %s
+            """SELECT start_date, value FROM hlt_samples WHERE type = %s AND user_id = %s AND start_date >= %s AND start_date < %s
             AND value IS NOT NULL ORDER BY start_date LIMIT 20000""", (name, u, frm, to))]
         return reply
     if bucket not in ("hour", "day", "week", "month", "year"):
@@ -357,7 +357,7 @@ def sleep_series(u: int, frm, to, bucket: str, loc) -> dict:
 
 def hourly_rollup(u: int, name: str, frm, to) -> list:
     return [an.HourRow(aware(h), s, float(sm or 0), int(n), float(mn or 0), float(mx or 0)) for h, s, sm, n, mn, mx in db.q(
-        "SELECT hour, source_name, sum, n, min, max FROM sample_hourly WHERE user_id = %s AND type = %s AND hour >= %s AND hour < %s",
+        "SELECT hour, source_name, sum, n, min, max FROM hlt_sample_hourly WHERE user_id = %s AND type = %s AND hour >= %s AND hour < %s",
         (u, name, frm.replace(minute=0, second=0, microsecond=0), to))]
 
 
@@ -366,7 +366,7 @@ def hourly_samples(u: int, name: str, val: str, cond: str, frm, to) -> list:
     keeps time zones right without MariaDB's time zone tables."""
     rows = db.q(f"""SELECT DATE_FORMAT(start_date, '%%Y-%%m-%%d %%H:00:00') AS h, COALESCE(source_name, ''),
         SUM({val}), COUNT(*), MIN({val}), MAX({val})
-        FROM samples WHERE type = %s AND user_id = %s AND start_date >= %s AND start_date < %s {cond}
+        FROM hlt_samples WHERE type = %s AND user_id = %s AND start_date >= %s AND start_date < %s {cond}
         GROUP BY h, source_name""", (name, u, frm, to))
     return [an.HourRow(datetime.strptime(h, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC), s, float(sm or 0), int(n), float(mn or 0), float(mx or 0))
             for h, s, sm, n, mn, mx in rows]
@@ -393,8 +393,8 @@ def workout_list(u: int, frm, to) -> list:
     for uuid, at, s, e, dur, src, meta, has_route in db.q(
             """SELECT w.uuid, COALESCE(w.activity_type, ''), w.start_date, w.end_date, COALESCE(w.duration_s, 0),
             COALESCE(w.source_name, ''), COALESCE(w.metadata_json, '{}'),
-            EXISTS(SELECT 1 FROM workout_route_points p WHERE p.workout_uuid = w.uuid AND p.user_id = w.user_id LIMIT 1)
-            FROM workouts w WHERE w.user_id = %s AND w.start_date >= %s AND w.start_date < %s ORDER BY w.start_date DESC""", (u, frm, to)):
+            EXISTS(SELECT 1 FROM hlt_workout_route_points p WHERE p.workout_uuid = w.uuid AND p.user_id = w.user_id LIMIT 1)
+            FROM hlt_workouts w WHERE w.user_id = %s AND w.start_date >= %s AND w.start_date < %s ORDER BY w.start_date DESC""", (u, frm, to)):
         x = {"uuid": uuid, "activityType": at, "start": ts(s), "end": ts(e), "duration": float(dur), "source": src}
         apply_workout_meta(x, meta)
         x["hasRoute"] = bool(has_route)
@@ -404,7 +404,7 @@ def workout_list(u: int, frm, to) -> list:
         return out
     for wid, typ, unit, avg, mx, sm in db.q(
             """SELECT s.workout_uuid, s.type, COALESCE(s.unit, ''), s.average, s.maximum, s.sum
-            FROM workout_statistics s JOIN workouts w ON w.uuid = s.workout_uuid AND w.user_id = s.user_id
+            FROM hlt_workout_statistics s JOIN hlt_workouts w ON w.uuid = s.workout_uuid AND w.user_id = s.user_id
             WHERE w.user_id = %s AND w.start_date >= %s AND w.start_date < %s
             AND (s.type LIKE 'distance%%' OR s.type = 'active_energy_burned' OR s.type = 'heart_rate')""", (u, frm, to)):
         x = index.get(wid)
@@ -450,7 +450,7 @@ WORKOUT_SERIES_TYPES = ["heart_rate", "running_power", "running_speed", "running
 def route_points(u: int, wid: str) -> list:
     return an.clean_route([an.RoutePoint(aware(t), lat, lon, float(alt), float(sp), float(acc)) for t, lat, lon, alt, sp, acc in db.q(
         """SELECT time, latitude, longitude, COALESCE(altitude, 0), COALESCE(speed, -1), COALESCE(horizontal_accuracy, 0)
-        FROM workout_route_points WHERE workout_uuid = %s AND user_id = %s ORDER BY time""", (wid, u))])
+        FROM hlt_workout_route_points WHERE workout_uuid = %s AND user_id = %s ORDER BY time""", (wid, u))])
 
 
 def max_hr(u: int, request: Request, at: datetime) -> tuple:
@@ -462,15 +462,15 @@ def max_hr(u: int, request: Request, at: datetime) -> tuple:
             return v, "setting"
     except ValueError:
         pass
-    r = db.one("SELECT value FROM characteristics WHERE user_id = %s AND `key` = 'dateOfBirth'", (u,))
+    r = db.one("SELECT value FROM hlt_characteristics WHERE user_id = %s AND name = 'dateOfBirth'", (u,))
     age = an.age_on(r[0] if r else "", at)
     if 5 < age < 110:
         return float(220 - age), "age"
     since = db.naive(at) - timedelta(days=365)
     if ready.has("heart_rate"):
-        mx = db.one("SELECT MAX(max) FROM sample_hourly WHERE user_id = %s AND type = 'heart_rate' AND hour >= %s", (u, since))[0]
+        mx = db.one("SELECT MAX(max) FROM hlt_sample_hourly WHERE user_id = %s AND type = 'heart_rate' AND hour >= %s", (u, since))[0]
     else:
-        mx = db.one("SELECT MAX(value) FROM samples WHERE type = 'heart_rate' AND user_id = %s AND start_date >= %s", (u, since))[0]
+        mx = db.one("SELECT MAX(value) FROM hlt_samples WHERE type = 'heart_rate' AND user_id = %s AND start_date >= %s", (u, since))[0]
     if mx is not None and mx > 100:
         return float(mx), "observed"
     return 0.0, ""
@@ -482,7 +482,7 @@ def workout(wid: str, request: Request):
 
     def f():
         r = db.one("""SELECT uuid, COALESCE(activity_type, ''), start_date, end_date, COALESCE(duration_s, 0),
-            COALESCE(source_name, ''), COALESCE(metadata_json, '{}') FROM workouts WHERE uuid = %s AND user_id = %s""", (wid, u))
+            COALESCE(source_name, ''), COALESCE(metadata_json, '{}') FROM hlt_workouts WHERE uuid = %s AND user_id = %s""", (wid, u))
         if not r:
             raise NotFound("not found")
         s, e = aware(r[2]), aware(r[3])
@@ -492,7 +492,7 @@ def workout(wid: str, request: Request):
             d["metadata"] = json.loads(r[6]) if r[6] else None
         except ValueError:
             d["metadata"] = None
-        d["statistics"] = maps("""SELECT type, unit, average, minimum, maximum, sum, most_recent FROM workout_statistics
+        d["statistics"] = maps("""SELECT type, unit, average, minimum, maximum, sum, most_recent FROM hlt_workout_statistics
             WHERE workout_uuid = %s AND user_id = %s ORDER BY type""", (wid, u))
         for st in d["statistics"]:
             typ, unit = st.get("type") or "", st.get("unit") or ""
@@ -506,14 +506,14 @@ def workout(wid: str, request: Request):
             elif typ.startswith("distance") and st.get("sum") is not None:
                 d["distance"] = an.to_metres(st["sum"], unit)
         d["events"] = maps("""SELECT type, UNIX_TIMESTAMP(start_date) AS start, UNIX_TIMESTAMP(end_date) AS end
-            FROM workout_events WHERE workout_uuid = %s AND user_id = %s ORDER BY start_date""", (wid, u))
+            FROM hlt_workout_events WHERE workout_uuid = %s AND user_id = %s ORDER BY start_date""", (wid, u))
         d["activities"] = maps("""SELECT activity_type, UNIX_TIMESTAMP(start_date) AS start, UNIX_TIMESTAMP(end_date) AS end
-            FROM workout_activities WHERE workout_uuid = %s AND user_id = %s ORDER BY start_date""", (wid, u))
+            FROM hlt_workout_activities WHERE workout_uuid = %s AND user_id = %s ORDER BY start_date""", (wid, u))
 
         d["series"], d["units"] = {}, {}
         hr = an.HRSeries()
         ph = ", ".join(["%s"] * len(WORKOUT_SERIES_TYPES))
-        for typ, t, v, unit in db.q(f"""SELECT type, start_date, value, COALESCE(unit, '') FROM samples
+        for typ, t, v, unit in db.q(f"""SELECT type, start_date, value, COALESCE(unit, '') FROM hlt_samples
                 WHERE start_date >= %s AND start_date <= %s AND type IN ({ph}) AND user_id = %s AND value IS NOT NULL ORDER BY start_date""",
                                     [db.naive(s), db.naive(e)] + WORKOUT_SERIES_TYPES + [u]):
             t = aware(t)
@@ -566,7 +566,7 @@ def routes(request: Request):
         for wid, at, start, t, lat, lon, acc in db.q(
                 """SELECT p.workout_uuid, COALESCE(w.activity_type, ''), w.start_date, p.time, p.latitude, p.longitude,
                 COALESCE(p.horizontal_accuracy, 0)
-                FROM workouts w JOIN workout_route_points p ON p.workout_uuid = w.uuid AND p.user_id = w.user_id
+                FROM hlt_workouts w JOIN hlt_workout_route_points p ON p.workout_uuid = w.uuid AND p.user_id = w.user_id
                 WHERE w.user_id = %s AND w.start_date >= %s AND w.start_date < %s AND (%s = '' OR w.activity_type = %s)
                 ORDER BY p.workout_uuid, p.time""", (u, frm, to, typ, typ)):
             if cur is None or cur["uuid"] != wid:
@@ -583,7 +583,7 @@ def routes(request: Request):
 
 def sleep_samples(u: int, frm, to) -> list:
     return [an.SleepSample(aware(s), aware(e), stage, src) for s, e, stage, src in db.q(
-        """SELECT start_date, end_date, COALESCE(text, ''), COALESCE(source_name, '') FROM samples
+        """SELECT start_date, end_date, COALESCE(text, ''), COALESCE(source_name, '') FROM hlt_samples
         WHERE type = 'sleep_analysis' AND user_id = %s AND start_date >= %s AND start_date < %s ORDER BY start_date""", (u, frm, to))]
 
 
@@ -622,7 +622,7 @@ def activity(request: Request):
         frm, to = time_range(request, loc, 30)
         return maps("""SELECT DATE_FORMAT(date, '%%Y-%%m-%%d') AS date, active_energy_kcal AS move, active_energy_goal_kcal AS moveGoal,
             exercise_min AS exercise, exercise_goal_min AS exerciseGoal, stand_hours AS stand, stand_hours_goal AS standGoal
-            FROM activity_summaries WHERE user_id = %s AND date >= %s AND date < %s ORDER BY date""",
+            FROM hlt_activity_summaries WHERE user_id = %s AND date >= %s AND date < %s ORDER BY date""",
                     (u, aware(frm).astimezone(loc).strftime("%Y-%m-%d"), aware(to).astimezone(loc).strftime("%Y-%m-%d")))
     return cached(request, 0, f)
 
@@ -634,14 +634,14 @@ def profile(request: Request):
     u = uid_of(request)
 
     def f():
-        chars = {k: v or "" for k, v in db.q("SELECT `key`, value FROM characteristics WHERE user_id = %s", (u,))}
+        chars = {k: v or "" for k, v in db.q("SELECT name, value FROM hlt_characteristics WHERE user_id = %s", (u,))}
         out = {"characteristics": chars}
         now = datetime.now(UTC)
         age = an.age_on(chars.get("dateOfBirth", ""), now)
         if age > 0:
             out["age"] = age
         out["maxHr"], out["maxHrFrom"] = max_hr(u, request, now)
-        rhr = db.one("SELECT AVG(value) FROM samples WHERE type = 'resting_heart_rate' AND user_id = %s AND start_date >= %s",
+        rhr = db.one("SELECT AVG(value) FROM hlt_samples WHERE type = 'resting_heart_rate' AND user_id = %s AND start_date >= %s",
                      (u, db.naive(now) - timedelta(days=30)))[0]
         if rhr is not None:
             out["restingHr"] = an.round_half_away(float(rhr))
@@ -718,7 +718,7 @@ def records(request: Request):
         prev = None
         for d, m, e, s in db.q("""SELECT date, active_energy_kcal >= active_energy_goal_kcal AND active_energy_goal_kcal > 0,
                 exercise_min >= exercise_goal_min AND exercise_goal_min > 0, stand_hours >= stand_hours_goal AND stand_hours_goal > 0
-                FROM activity_summaries WHERE user_id = %s ORDER BY date""", (u,)):
+                FROM hlt_activity_summaries WHERE user_id = %s ORDER BY date""", (u,)):
             gap = prev is not None and (d - prev).days > 1
             prev = d
             closed = [bool(m), bool(e), bool(s), bool(m) and bool(e) and bool(s)]
@@ -797,7 +797,7 @@ def glucose(request: Request):
         for t, v, unit, src, meal in db.q(
                 """SELECT start_date, value, COALESCE(unit, ''), COALESCE(source_name, ''),
                 COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.HKBloodGlucoseMealTime')), '')
-                FROM samples WHERE type = 'blood_glucose' AND user_id = %s AND start_date >= %s AND start_date < %s AND value IS NOT NULL
+                FROM hlt_samples WHERE type = 'blood_glucose' AND user_id = %s AND start_date >= %s AND start_date < %s AND value IS NOT NULL
                 ORDER BY start_date""", (u, frm, to)):
             rs.append(gl.Reading(aware(t), gl.to_mgdl(v, unit), src, {"1": "before meal", "2": "after meal"}.get(meal, "")))
             units[unit] = units.get(unit, 0) + 1
@@ -828,7 +828,7 @@ def glucose(request: Request):
 @router.get("/api/settings", dependencies=[access.signed_in])
 def get_settings(request: Request):
     out = {}
-    for k, v in db.q("SELECT `key`, value FROM web_settings WHERE user_id = %s", (uid_of(request),)):
+    for k, v in db.q("SELECT name, value FROM hlt_user_settings WHERE user_id = %s", (uid_of(request),)):
         try:
             out[k] = json.loads(v)
         except ValueError:
@@ -857,5 +857,5 @@ async def put_settings(request: Request):
         rows.append((u, k, json.dumps(v, ensure_ascii=False)))
     if rows:
         with db.tx() as con, con.cursor() as cur:
-            cur.executemany("INSERT INTO web_settings (user_id, `key`, value) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE value = VALUES(value)", rows)
+            cur.executemany("INSERT INTO hlt_user_settings (user_id, name, value) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE value = VALUES(value)", rows)
     return {"saved": len(rows)}

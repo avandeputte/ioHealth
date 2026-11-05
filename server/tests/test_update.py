@@ -39,7 +39,7 @@ def test_a_viewer_gets_neither_the_banner_nor_maintenance(client, admin):
 def test_maintenance(client, admin):
     m = client.get("/api/maintenance").json()
     assert m["version"] == __version__ and m["database"]["schemaVersion"] >= 9
-    assert [t["name"] for t in m["database"]["tables"]][0] == "samples" and all("rows" in t and "bytes" in t for t in m["database"]["tables"])
+    assert [t["name"] for t in m["database"]["tables"]][0] == "hlt_samples" and all("rows" in t and "bytes" in t for t in m["database"]["tables"])
     assert "ready" in m["rollup"] and "update" not in m  # the version and updates are under Maintenance › Updates and logs
     u = client.get("/api/maintenance/uploads").json()
     assert u["syncs"] == [] and u["total"] == 0

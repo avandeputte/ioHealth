@@ -28,7 +28,7 @@ router = APIRouter()
 
 MAX_BODY = 64 << 20  # per request, after decompression
 BATCH_ROWS = 1000
-WORKOUT_CHILDREN = ("workout_statistics", "workout_events", "workout_activities", "workout_route_points")
+WORKOUT_CHILDREN = ("hlt_workout_statistics", "hlt_workout_events", "hlt_workout_activities", "hlt_workout_route_points")
 
 on_sync = []  # callbacks after a sync finishes (the web API's caches)
 
@@ -99,16 +99,16 @@ class Batch:
     """One upload batch for one account, applied in one transaction."""
 
     COLS = {
-        "samples": ("uuid", "type", "kind", "start_date", "end_date", "value", "unit", "text", "count", "source_name", "metadata_json"),
-        "workout_route_points": ("route_uuid", "time", "workout_uuid", "latitude", "longitude", "altitude", "horizontal_accuracy",
+        "hlt_samples": ("uuid", "type", "kind", "start_date", "end_date", "value", "unit", "text", "count", "source_name", "metadata_json"),
+        "hlt_workout_route_points": ("route_uuid", "time", "workout_uuid", "latitude", "longitude", "altitude", "horizontal_accuracy",
                                  "vertical_accuracy", "speed", "course"),
-        "heartbeats": ("series_uuid", "time_since_start_s", "preceded_by_gap"),
-        "activity_summaries": ("date", "active_energy_kcal", "active_energy_goal_kcal", "exercise_min", "exercise_goal_min",
+        "hlt_heartbeats": ("series_uuid", "time_since_start_s", "preceded_by_gap"),
+        "hlt_activity_summaries": ("date", "active_energy_kcal", "active_energy_goal_kcal", "exercise_min", "exercise_goal_min",
                                "stand_hours", "stand_hours_goal", "move_min", "move_goal_min"),
-        "characteristics": ("`key`", "value"),
+        "hlt_characteristics": ("name", "value"),
     }
     # how many leading columns of COLS are the table's key (user_id aside): an upsert leaves those alone
-    KEYS = {"samples": 1, "workout_route_points": 2, "heartbeats": 2, "activity_summaries": 1, "characteristics": 1}
+    KEYS = {"hlt_samples": 1, "hlt_workout_route_points": 2, "hlt_heartbeats": 2, "hlt_activity_summaries": 1, "hlt_characteristics": 1}
 
     def __init__(self, cur, user_id: int):
         self.cur, self.uid = cur, user_id
@@ -136,12 +136,12 @@ class Batch:
         if not rows:
             return
         self.cur.executemany(self.upsert_sql(table, self.COLS[table], self.KEYS[table]), rows)
-        if table == "samples":
+        if table == "hlt_samples":
             for r in rows:
                 if r[5] is not None or r[2] == "category":
                     self.touched.add(r[1], r[3])
             uuids = [r[0] for r in rows]
-            self.cur.execute(f"DELETE FROM deleted_objects WHERE user_id = %s AND uuid IN ({', '.join(['%s'] * len(uuids))})",
+            self.cur.execute(f"DELETE FROM hlt_deleted_objects WHERE user_id = %s AND uuid IN ({', '.join(['%s'] * len(uuids))})",
                              [self.uid] + uuids)  # a re-added object is no longer deleted
         rows.clear()
 
@@ -158,19 +158,19 @@ class Batch:
 
     def apply(self, kind: str, m):
         if kind == "characteristic":
-            self.add("characteristics", (m["key"], m.get("value")))
+            self.add("hlt_characteristics", (m["key"], m.get("value")))
         elif kind == "sample":
-            self.add("samples", (m["uuid"], m["type"], m["kind"], parse_time(m["start"]), parse_time(m["end"]), m.get("value"),
+            self.add("hlt_samples", (m["uuid"], m["type"], m["kind"], parse_time(m["start"]), parse_time(m["end"]), m.get("value"),
                                  m.get("unit"), m.get("text"), m.get("count"), (m.get("source") or {}).get("name", ""), meta_json(m.get("metadata"))))
         elif kind == "workout":
             self.workout(m)
         elif kind == "routePoint":
-            self.add("workout_route_points", (m["routeUUID"], parse_time(m["time"]), m["workoutUUID"], m["latitude"], m["longitude"],
+            self.add("hlt_workout_route_points", (m["routeUUID"], parse_time(m["time"]), m["workoutUUID"], m["latitude"], m["longitude"],
                                               m.get("altitude"), m.get("horizontalAccuracy"), m.get("verticalAccuracy"), m.get("speed"), m.get("course")))
         elif kind == "heartbeat":
-            self.add("heartbeats", (m["seriesUUID"], m["timeSinceStart"], bool(m.get("precededByGap"))))
+            self.add("hlt_heartbeats", (m["seriesUUID"], m["timeSinceStart"], bool(m.get("precededByGap"))))
         elif kind == "activitySummary":
-            self.add("activity_summaries", (m["date"], m.get("activeEnergyBurned"), m.get("activeEnergyBurnedGoal"), m.get("appleExerciseTime"),
+            self.add("hlt_activity_summaries", (m["date"], m.get("activeEnergyBurned"), m.get("activeEnergyBurnedGoal"), m.get("appleExerciseTime"),
                                             m.get("appleExerciseTimeGoal"), m.get("appleStandHours"), m.get("appleStandHoursGoal"),
                                             m.get("appleMoveTime"), m.get("appleMoveTimeGoal")))
         elif kind == "deleted":
@@ -182,16 +182,16 @@ class Batch:
     def deleted(self, uuid: str, typ):
         self.flush_all()  # buffered inserts first, so a delete always wins over an earlier add of the same object
         c = self.cur
-        c.execute("SELECT type, start_date FROM samples WHERE uuid = %s AND user_id = %s", (uuid, self.uid))
+        c.execute("SELECT type, start_date FROM hlt_samples WHERE uuid = %s AND user_id = %s", (uuid, self.uid))
         r = c.fetchone()
         if r:
             self.touched.add(r[0], r[1])
-        c.execute("DELETE FROM samples WHERE uuid = %s AND user_id = %s", (uuid, self.uid))
-        c.execute("DELETE FROM heartbeats WHERE series_uuid = %s AND user_id = %s", (uuid, self.uid))
-        if c.execute("DELETE FROM workouts WHERE uuid = %s AND user_id = %s", (uuid, self.uid)):
+        c.execute("DELETE FROM hlt_samples WHERE uuid = %s AND user_id = %s", (uuid, self.uid))
+        c.execute("DELETE FROM hlt_heartbeats WHERE series_uuid = %s AND user_id = %s", (uuid, self.uid))
+        if c.execute("DELETE FROM hlt_workouts WHERE uuid = %s AND user_id = %s", (uuid, self.uid)):
             for t in WORKOUT_CHILDREN:
                 c.execute(f"DELETE FROM {t} WHERE workout_uuid = %s AND user_id = %s", (uuid, self.uid))
-        c.execute("INSERT INTO deleted_objects (uuid, type, deleted_at, user_id) VALUES (%s, %s, %s, %s) "
+        c.execute("INSERT INTO hlt_deleted_objects (uuid, type, deleted_at, user_id) VALUES (%s, %s, %s, %s) "
                   "ON DUPLICATE KEY UPDATE type = IF(user_id = VALUES(user_id), VALUES(type), type), "
                   "deleted_at = IF(user_id = VALUES(user_id), VALUES(deleted_at), deleted_at)",
                   (uuid, typ, datetime.now(timezone.utc).replace(tzinfo=None), self.uid))
@@ -199,42 +199,42 @@ class Batch:
     def workout(self, w):
         self.flush_all()
         c, uid = self.cur, self.uid
-        c.execute("SELECT user_id FROM workouts WHERE uuid = %s", (w["uuid"],))
+        c.execute("SELECT user_id FROM hlt_workouts WHERE uuid = %s", (w["uuid"],))
         r = c.fetchone()
         if r and r[0] != uid:
             log.warning("workout %s belongs to another account: ignored", w["uuid"])
             return
         # an upsert rather than REPLACE, so inserted_at survives a resend and updated_at only moves when a value changed
-        c.execute("""INSERT INTO workouts (uuid, activity_type, activity_type_raw, start_date, end_date, duration_s, source_name, metadata_json, user_id)
+        c.execute("""INSERT INTO hlt_workouts (uuid, activity_type, activity_type_raw, start_date, end_date, duration_s, source_name, metadata_json, user_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE activity_type = VALUES(activity_type), activity_type_raw = VALUES(activity_type_raw),
             start_date = VALUES(start_date), end_date = VALUES(end_date), duration_s = VALUES(duration_s),
             source_name = VALUES(source_name), metadata_json = VALUES(metadata_json)""",
                   (w["uuid"], w.get("activityType"), w.get("activityTypeRaw"), parse_time(w["start"]), parse_time(w["end"]), w.get("duration"),
                    (w.get("source") or {}).get("name", ""), meta_json(w.get("metadata")), uid))
-        c.execute("DELETE FROM workout_events WHERE workout_uuid = %s AND user_id = %s", (w["uuid"], uid))
-        c.execute("DELETE FROM workout_activities WHERE workout_uuid = %s AND user_id = %s", (w["uuid"], uid))
+        c.execute("DELETE FROM hlt_workout_events WHERE workout_uuid = %s AND user_id = %s", (w["uuid"], uid))
+        c.execute("DELETE FROM hlt_workout_activities WHERE workout_uuid = %s AND user_id = %s", (w["uuid"], uid))
         stats = [(w["uuid"], s.get("type"), s.get("unit"), s.get("average"), s.get("minimum"), s.get("maximum"), s.get("sum"), s.get("mostRecent"))
                  for s in w.get("statistics") or []]
         # statistics the workout no longer has go; the others are upserted below, keeping their inserted_at
         keep = [s[1] for s in stats]
-        c.execute("DELETE FROM workout_statistics WHERE workout_uuid = %s AND user_id = %s"
+        c.execute("DELETE FROM hlt_workout_statistics WHERE workout_uuid = %s AND user_id = %s"
                   + (f" AND type NOT IN ({', '.join(['%s'] * len(keep))})" if keep else ""), [w["uuid"], uid] + keep)
         if stats:
-            c.executemany(self.upsert_sql("workout_statistics", ("workout_uuid", "type", "unit", "average", "minimum", "maximum", "sum", "most_recent"), 2),
+            c.executemany(self.upsert_sql("hlt_workout_statistics", ("workout_uuid", "type", "unit", "average", "minimum", "maximum", "sum", "most_recent"), 2),
                           [s + (uid,) for s in stats])
         for e in w.get("events") or []:
-            c.execute("INSERT INTO workout_events (workout_uuid, type, start_date, end_date, metadata_json, user_id) VALUES (%s, %s, %s, %s, %s, %s)",
+            c.execute("INSERT INTO hlt_workout_events (workout_uuid, type, start_date, end_date, metadata_json, user_id) VALUES (%s, %s, %s, %s, %s, %s)",
                       (w["uuid"], e.get("type"), parse_time(e.get("start")), parse_time(e.get("end")), meta_json(e.get("metadata")), uid))
         for a in w.get("activities") or []:
-            c.execute("INSERT INTO workout_activities (workout_uuid, activity_type, start_date, end_date, metadata_json, user_id) VALUES (%s, %s, %s, %s, %s, %s)",
+            c.execute("INSERT INTO hlt_workout_activities (workout_uuid, activity_type, start_date, end_date, metadata_json, user_id) VALUES (%s, %s, %s, %s, %s, %s)",
                       (w["uuid"], a.get("activityType"), parse_time(a.get("start")), parse_time(a.get("end")), meta_json(a.get("metadata")), uid))
 
 
 def apply_batch(user_id: int, session_id: int, seq: int, body: bytes) -> dict:
     started = time.time()
     with rollup.lock, db.tx() as con, con.cursor() as cur:
-        cur.execute("SELECT last_batch_seq FROM sync_log WHERE id = %s AND user_id = %s FOR UPDATE", (session_id, user_id))
+        cur.execute("SELECT last_batch_seq FROM hlt_sync_log WHERE id = %s AND user_id = %s FOR UPDATE", (session_id, user_id))
         r = cur.fetchone()
         if not r:
             raise HTTPException(404, f"no session {session_id}")
@@ -253,7 +253,7 @@ def apply_batch(user_id: int, session_id: int, seq: int, body: bytes) -> dict:
             except (ValueError, KeyError, TypeError) as e:
                 raise HTTPException(400, f"line {lines}: {e}")
         b.finish()
-        cur.execute("UPDATE sync_log SET last_batch_seq = %s, applied = applied + %s WHERE id = %s", (seq, b.applied, session_id))
+        cur.execute("UPDATE hlt_sync_log SET last_batch_seq = %s, applied = applied + %s WHERE id = %s", (seq, b.applied, session_id))
     log.info("session %d: batch %d, %d lines, %d items applied in %dms", session_id, seq, lines, b.applied, (time.time() - started) * 1000)
     return {"applied": b.applied}
 
@@ -303,7 +303,7 @@ async def _json(request: Request) -> dict:
 async def start(request: Request):
     uid = uploader(request)
     h = await _json(request)
-    sid = await run_in_threadpool(db.ex, "INSERT INTO sync_log (started_at, device, `system`, full_resync, items, user_id) VALUES (%s, %s, %s, %s, 0, %s)",
+    sid = await run_in_threadpool(db.ex, "INSERT INTO hlt_sync_log (started_at, device, os, full_resync, items, user_id) VALUES (%s, %s, %s, %s, 0, %s)",
                                   (datetime.now(timezone.utc).replace(tzinfo=None), str(h.get("deviceName", ""))[:255],
                                    str(h.get("systemVersion", ""))[:32], bool(h.get("fullResync")), uid))
     log.info("session %d: started by %s for %s (iOS %s), full resync: %s", sid, h.get("deviceName"), request.state.user["name"],
@@ -330,11 +330,11 @@ async def finish(session_id: int, request: Request):
     d = await _json(request)
 
     def work():
-        n = db.ex("UPDATE sync_log SET finished_at = %s, items = %s WHERE id = %s AND user_id = %s",
+        n = db.ex("UPDATE hlt_sync_log SET finished_at = %s, items = %s WHERE id = %s AND user_id = %s",
                   (datetime.now(timezone.utc).replace(tzinfo=None), int(d.get("totalSent") or 0), session_id, uid))
-        if not n and not db.one("SELECT 1 FROM sync_log WHERE id = %s AND user_id = %s", (session_id, uid)):
+        if not n and not db.one("SELECT 1 FROM hlt_sync_log WHERE id = %s AND user_id = %s", (session_id, uid)):
             raise HTTPException(404, f"no session {session_id}")
-        applied = db.one("SELECT applied FROM sync_log WHERE id = %s AND user_id = %s", (session_id, uid))[0]
+        applied = db.one("SELECT applied FROM hlt_sync_log WHERE id = %s AND user_id = %s", (session_id, uid))[0]
         for f in on_sync:
             f()
         log.info("session %d: finished, %s items sent, %d applied", session_id, d.get("totalSent"), applied)

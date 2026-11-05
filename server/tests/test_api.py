@@ -63,10 +63,10 @@ def test_upload_with_app_password_and_read_back(client, admin):
                                     sample("s3", "heart_rate", T0, 70, "count/min"), {"characteristic": {"key": "dateOfBirth", "value": "1980-01-01"}},
                                     {"typeDone": {"type": "step_count", "added": 2, "deleted": 0}}, {"ecg": {"_0": {"uuid": "e"}}})
     assert applied == 4 and received == 4
-    assert db.one("SELECT user_id FROM samples WHERE uuid = 's1'")[0] == admin["id"]
-    assert db.one("SELECT user_id, device FROM sync_log WHERE id = %s", (sid,)) == (admin["id"], "aphone")
+    assert db.one("SELECT user_id FROM hlt_samples WHERE uuid = 's1'")[0] == admin["id"]
+    assert db.one("SELECT user_id, device FROM hlt_sync_log WHERE id = %s", (sid,)) == (admin["id"], "aphone")
     # the rollup kept the hours up to date inside the batch
-    assert db.one("SELECT SUM(n) FROM sample_hourly WHERE type = 'step_count' AND user_id = %s", (admin["id"],))[0] == 2
+    assert db.one("SELECT SUM(n) FROM hlt_sample_hourly WHERE type = 'step_count' AND user_id = %s", (admin["id"],))[0] == 2
 
     types = {t["type"]: t for t in client.get("/api/types").json()}
     assert types["step_count"]["count"] == 2 and types["step_count"]["cumulative"] and types["heart_rate"]["unit"] == "count/min"
@@ -105,7 +105,7 @@ def test_accounts_see_only_their_own_data(client, admin):
     assert client.post("/api/auth/login", json={"name": "bo", "password": "secretpw2"}).status_code == 200
     bo_pw = app_password(client, "Bo's phone")
     upload(client, bo_pw, sample("b1", "step_count", T0, 7), sample("a1", "step_count", T0, 999))  # a1 is alex's: left alone
-    assert db.one("SELECT value, user_id FROM samples WHERE uuid = 'a1'") == (100, admin["id"])
+    assert db.one("SELECT value, user_id FROM hlt_samples WHERE uuid = 'a1'") == (100, admin["id"])
     types = {t["type"]: t for t in client.get("/api/types").json()}
     assert types["step_count"]["count"] == 1
     assert client.get("/api/workouts").json() == []
@@ -154,8 +154,8 @@ def test_sleep_glucose_and_deletes(client, admin):
     assert rec["rings"][3]["longest"] == 1
     # a delete removes the sample and its hour
     upload(client, pw, {"deleted": {"uuid": "g0", "type": "blood_glucose"}}, seq=1)
-    assert db.one("SELECT COUNT(*) FROM samples WHERE type = 'blood_glucose'")[0] == 9
-    assert db.one("SELECT uuid FROM deleted_objects")[0] == "g0"
+    assert db.one("SELECT COUNT(*) FROM hlt_samples WHERE type = 'blood_glucose'")[0] == 9
+    assert db.one("SELECT uuid FROM hlt_deleted_objects")[0] == "g0"
 
 
 def workout_msg(uuid, stats, events=()):
@@ -176,12 +176,12 @@ def test_workout_children_follow_the_workout(client, admin):
            {"heartbeat": {"seriesUUID": "hb1", "timeSinceStart": 0.5}}, {"heartbeat": {"seriesUUID": "hb1", "timeSinceStart": 1.2}})
     # a resent workout keeps only the statistics it still has
     upload(client, pw, workout_msg("w1", [("distance_walking_running", 6)]))
-    assert db.q("SELECT type, sum FROM workout_statistics WHERE workout_uuid = 'w1'") == [("distance_walking_running", 6)]
+    assert db.q("SELECT type, sum FROM hlt_workout_statistics WHERE workout_uuid = 'w1'") == [("distance_walking_running", 6)]
     # deleting the workout and the heartbeat series takes their rows with them
     upload(client, pw, {"deleted": {"uuid": "w1", "type": "workout"}}, {"deleted": {"uuid": "hb1", "type": "heartbeat_series"}})
-    for t in ("workout_statistics", "workout_events", "workout_activities", "workout_route_points"):
+    for t in ("hlt_workout_statistics", "hlt_workout_events", "hlt_workout_activities", "hlt_workout_route_points"):
         assert db.one(f"SELECT COUNT(*) FROM {t} WHERE workout_uuid = 'w1'")[0] == 0, t
-    assert db.one("SELECT COUNT(*) FROM heartbeats")[0] == 0
+    assert db.one("SELECT COUNT(*) FROM hlt_heartbeats")[0] == 0
 
 
 def test_another_account_cannot_add_to_a_workout(client, admin):
