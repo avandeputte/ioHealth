@@ -3,7 +3,7 @@
   GET  /v1/health                       no sign-in: {"ok", "schemaVersion"}, for the phone's Test and the healthcheck
   POST /v1/sessions                     {"deviceName","systemVersion","fullResync"} -> {"sessionId"}
   POST /v1/sessions/{id}/items          NDJSON lines (gzip or deflate), X-Batch-Seq: n -> {"applied"}
-  POST /v1/sessions/{id}/finish         {"totalSent"} -> {"received"}: the account's rows in the database
+  POST /v1/sessions/{id}/finish         {"totalSent"} -> {"received"}: the items this session applied
 
 The phone signs in with `Authorization: Bearer <app password>` (an app password of an editor account, made under
 Settings › Account in the web app). A batch is applied in
@@ -28,7 +28,7 @@ router = APIRouter()
 
 MAX_BODY = 64 << 20  # per request, after decompression
 BATCH_ROWS = 1000
-COUNTED = ("samples", "workouts", "workout_route_points", "heartbeats", "activity_summaries", "characteristics")
+WORKOUT_CHILDREN = ("workout_statistics", "workout_events", "workout_activities", "workout_route_points")
 
 on_sync = []  # callbacks after a sync finishes (the web API's caches)
 
@@ -100,13 +100,14 @@ class Batch:
 
     COLS = {
         "samples": ("uuid", "type", "kind", "start_date", "end_date", "value", "unit", "text", "count", "source_name", "metadata_json"),
-        "workout_route_points": ("workout_uuid", "route_uuid", "time", "latitude", "longitude", "altitude", "horizontal_accuracy",
+        "workout_route_points": ("route_uuid", "time", "workout_uuid", "latitude", "longitude", "altitude", "horizontal_accuracy",
                                  "vertical_accuracy", "speed", "course"),
         "heartbeats": ("series_uuid", "time_since_start_s", "preceded_by_gap"),
         "activity_summaries": ("date", "active_energy_kcal", "active_energy_goal_kcal", "exercise_min", "exercise_goal_min",
                                "stand_hours", "stand_hours_goal", "move_min", "move_goal_min"),
         "characteristics": ("`key`", "value"),
     }
+    # how many leading columns of COLS are the table's key (user_id aside): an upsert leaves those alone
     KEYS = {"samples": 1, "workout_route_points": 2, "heartbeats": 2, "activity_summaries": 1, "characteristics": 1}
 
     def __init__(self, cur, user_id: int):
@@ -164,7 +165,7 @@ class Batch:
         elif kind == "workout":
             self.workout(m)
         elif kind == "routePoint":
-            self.add("workout_route_points", (m["workoutUUID"], m["routeUUID"], parse_time(m["time"]), m["latitude"], m["longitude"],
+            self.add("workout_route_points", (m["routeUUID"], parse_time(m["time"]), m["workoutUUID"], m["latitude"], m["longitude"],
                                               m.get("altitude"), m.get("horizontalAccuracy"), m.get("verticalAccuracy"), m.get("speed"), m.get("course")))
         elif kind == "heartbeat":
             self.add("heartbeats", (m["seriesUUID"], m["timeSinceStart"], bool(m.get("precededByGap"))))
@@ -186,7 +187,10 @@ class Batch:
         if r:
             self.touched.add(r[0], r[1])
         c.execute("DELETE FROM samples WHERE uuid = %s AND user_id = %s", (uuid, self.uid))
-        c.execute("DELETE FROM workouts WHERE uuid = %s AND user_id = %s", (uuid, self.uid))
+        c.execute("DELETE FROM heartbeats WHERE series_uuid = %s AND user_id = %s", (uuid, self.uid))
+        if c.execute("DELETE FROM workouts WHERE uuid = %s AND user_id = %s", (uuid, self.uid)):
+            for t in WORKOUT_CHILDREN:
+                c.execute(f"DELETE FROM {t} WHERE workout_uuid = %s AND user_id = %s", (uuid, self.uid))
         c.execute("INSERT INTO deleted_objects (uuid, type, deleted_at, user_id) VALUES (%s, %s, %s, %s) "
                   "ON DUPLICATE KEY UPDATE type = IF(user_id = VALUES(user_id), VALUES(type), type), "
                   "deleted_at = IF(user_id = VALUES(user_id), VALUES(deleted_at), deleted_at)",
@@ -212,6 +216,10 @@ class Batch:
         c.execute("DELETE FROM workout_activities WHERE workout_uuid = %s AND user_id = %s", (w["uuid"], uid))
         stats = [(w["uuid"], s.get("type"), s.get("unit"), s.get("average"), s.get("minimum"), s.get("maximum"), s.get("sum"), s.get("mostRecent"))
                  for s in w.get("statistics") or []]
+        # statistics the workout no longer has go; the others are upserted below, keeping their inserted_at
+        keep = [s[1] for s in stats]
+        c.execute("DELETE FROM workout_statistics WHERE workout_uuid = %s AND user_id = %s"
+                  + (f" AND type NOT IN ({', '.join(['%s'] * len(keep))})" if keep else ""), [w["uuid"], uid] + keep)
         if stats:
             c.executemany(self.upsert_sql("workout_statistics", ("workout_uuid", "type", "unit", "average", "minimum", "maximum", "sum", "most_recent"), 2),
                           [s + (uid,) for s in stats])
@@ -233,7 +241,6 @@ def apply_batch(user_id: int, session_id: int, seq: int, body: bytes) -> dict:
         if seq <= r[0]:
             log.info("session %d: batch %d already applied, skipped", session_id, seq)
             return {"applied": 0, "duplicate": True}
-        cur.execute("UPDATE sync_log SET last_batch_seq = %s WHERE id = %s", (seq, session_id))
         b = Batch(cur, user_id)
         lines = 0
         for line in body.split(b"\n"):
@@ -246,12 +253,9 @@ def apply_batch(user_id: int, session_id: int, seq: int, body: bytes) -> dict:
             except (ValueError, KeyError, TypeError) as e:
                 raise HTTPException(400, f"line {lines}: {e}")
         b.finish()
+        cur.execute("UPDATE sync_log SET last_batch_seq = %s, applied = applied + %s WHERE id = %s", (seq, b.applied, session_id))
     log.info("session %d: batch %d, %d lines, %d items applied in %dms", session_id, seq, lines, b.applied, (time.time() - started) * 1000)
     return {"applied": b.applied}
-
-
-def total_rows(user_id: int) -> int:
-    return sum(db.one(f"SELECT COUNT(*) FROM {t} WHERE user_id = %s", (user_id,))[0] for t in COUNTED)
 
 
 # ---- routes
@@ -264,8 +268,28 @@ def health():
         raise HTTPException(503, str(e))
 
 
+async def raw_body(request: Request) -> bytes:
+    """The request body as sent, refused with 413 as soon as it passes MAX_BODY rather than read whole first."""
+    try:
+        if int(request.headers.get("content-length") or 0) > MAX_BODY:
+            raise HTTPException(413, "request body too large")
+    except ValueError:
+        raise HTTPException(400, "bad Content-Length")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_BODY:
+            raise HTTPException(413, "request body too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def body_of(request: Request) -> bytes:
+    return read_body(await raw_body(request), request.headers.get("content-encoding", ""))
+
+
 async def _json(request: Request) -> dict:
-    body = read_body(await request.body(), request.headers.get("content-encoding", ""))
+    body = await body_of(request)
     try:
         v = orjson.loads(body or b"{}")
     except orjson.JSONDecodeError as e:
@@ -296,7 +320,7 @@ async def items(session_id: int, request: Request):
         seq = 0
     if seq < 1:
         raise HTTPException(400, "X-Batch-Seq header must be a positive integer")
-    body = read_body(await request.body(), request.headers.get("content-encoding", ""))
+    body = await body_of(request)
     return await run_in_threadpool(apply_batch, uid, session_id, seq, body)
 
 
@@ -310,9 +334,9 @@ async def finish(session_id: int, request: Request):
                   (datetime.now(timezone.utc).replace(tzinfo=None), int(d.get("totalSent") or 0), session_id, uid))
         if not n and not db.one("SELECT 1 FROM sync_log WHERE id = %s AND user_id = %s", (session_id, uid)):
             raise HTTPException(404, f"no session {session_id}")
-        total = total_rows(uid)
+        applied = db.one("SELECT applied FROM sync_log WHERE id = %s AND user_id = %s", (session_id, uid))[0]
         for f in on_sync:
             f()
-        log.info("session %d: finished, %s items sent; %d rows for this account", session_id, d.get("totalSent"), total)
-        return {"received": total}
+        log.info("session %d: finished, %s items sent, %d applied", session_id, d.get("totalSent"), applied)
+        return {"received": applied}
     return await run_in_threadpool(work)

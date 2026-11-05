@@ -2663,6 +2663,10 @@ async function maintUploads() {
 let me = { user: null, usersExist: false, isAdmin: false };
 const isAdmin = () => !!me.isAdmin;
 
+async function signOutOthers() {
+  try { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } catch (e) { toast(e.message); }
+}
+
 async function authApi(path, { method = 'GET', body } = {}) {
   const r = await fetch(path, { method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined });
@@ -2805,7 +2809,7 @@ function renderUserMenu() {
     { label: 'Settings', action: () => { location.hash = '#/settings'; } },
     isAdmin() ? { label: 'Maintenance', action: () => { location.hash = '#/maintenance'; } } : null,
     me.user.passwordless ? null : { label: 'Change password', action: changePassword },
-    { label: 'Sign out everywhere', action: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } },
+    { label: 'Sign out everywhere', action: signOutOthers },
     '-',
     { label: 'Sign out', action: signOut },
   ]) }, avatar(me.user));
@@ -2830,7 +2834,7 @@ async function setAccount() {
   card('Password and sessions',
     h('div', { class: 'toolbar' },
       u.passwordless || me.viaProxy ? null : h('button', { onclick: changePassword }, 'Change password'),
-      h('button', { onclick: async () => { await authApi('api/auth/logout_all', { method: 'POST' }); toast('Your other sessions are signed out'); } }, 'Sign out everywhere else'),
+      h('button', { onclick: signOutOthers }, 'Sign out everywhere else'),
       h('button', { onclick: signOut }, 'Sign out')),
     u.passwordless ? h('p', { class: 'small muted' }, 'This account signs in with one click and has no password; an admin can give it one under Users.')
       : me.viaProxy ? h('p', { class: 'small muted' }, 'Signed in through the proxy in front of ioHealth; the password is changed there.') : null)];

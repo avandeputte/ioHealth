@@ -88,10 +88,16 @@ def tx():
             yield con
             con.commit()
         except BaseException:
-            con.rollback()
+            try:
+                con.rollback()
+            except pymysql.MySQLError:
+                pass  # a dropped connection: the error worth seeing is the one being raised
             raise
         finally:
-            con.autocommit(True)
+            try:
+                con.autocommit(True)
+            except pymysql.MySQLError:
+                pass  # conn() closes it rather than pooling it: it's not in autocommit mode
 
 
 def q(sql: str, args=None) -> list:
@@ -310,10 +316,25 @@ def migrations() -> list:
          "updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3))"],
         # 9: every row belongs to an account
         [_multi_user()],
+        # 10: what each sync applied (its reply, without counting the account's rows), and the delay views per account
+        ["ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS applied INT NOT NULL DEFAULT 0",
+         """CREATE OR REPLACE VIEW sample_delay_by_type AS
+            SELECT user_id, type, COUNT(*) AS samples,
+                ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS min_delay_min,
+                ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS avg_delay_min,
+                ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS max_delay_min,
+                MAX(end_date) AS latest_sample, MAX(inserted_at) AS latest_arrival
+            FROM samples WHERE inserted_at IS NOT NULL GROUP BY user_id, type""",
+         """CREATE OR REPLACE VIEW sample_delay_by_day AS
+            SELECT user_id, DATE(inserted_at) AS day, type, COUNT(*) AS samples,
+                ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS min_delay_min,
+                ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS avg_delay_min,
+                ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS max_delay_min
+            FROM samples WHERE inserted_at IS NOT NULL GROUP BY user_id, DATE(inserted_at), type"""],
     ]
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 _lock = threading.Lock()
 
 

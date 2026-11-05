@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "iohealth"
-version = "2.4.1"
+version = "2.4.2"
 description = "Apple Health data from the iPhone in your own MariaDB, with a fitness web app, over the ioThing suite's shared accounts"
 requires-python = ">=3.10"
 license = { text = "MIT" }
