@@ -55,6 +55,19 @@ def test_everything_needs_an_account(client):
     assert r.status_code == 401 and "error" in r.json()
 
 
+def test_the_shell_its_files_and_the_icon_are_public(client):
+    """The suite's layout: the page at /, every file it names under /static/, the mark at suite.ICON."""
+    import json
+    import re
+    from iosuite_shared import suite
+    html = client.get("/").text
+    paths = re.findall(r'(?:src|href)="(static/[^"?]+)', html)
+    paths += [i["src"] for i in json.loads(client.get("/manifest.webmanifest").content)["icons"]]
+    assert paths and all(p.startswith("static/") for p in paths)
+    for p in ["/" + p for p in paths] + [suite.ICON, "/static/icons/apple-touch-icon.png"]:
+        assert client.get(p).status_code == 200, p
+
+
 def test_upload_with_app_password_and_read_back(client, admin):
     pw = app_password(client)
     assert pw.startswith("iohealth-")
@@ -250,8 +263,8 @@ def test_suite_apps_for_the_app_switcher(client):
     absolute icon, ioHealth among them."""
     from iosuite_shared import suite
     client.get("/v1/health")
-    suite.register("iopix", name="ioPix", url="https://photo.example.net", color="#123456", icon="/static/icon.svg")
+    suite.register("iopix", name="ioPix", url="https://photo.example.net", color="#123456")
     r = client.get("/api/auth/suite").json()
     assert r["app"] == "iohealth"
     other = [a for a in r["items"] if a["app"] != r["app"]]
-    assert [(a["name"], a["url"], a["icon"]) for a in other] == [("ioPix", "https://photo.example.net", "https://photo.example.net/static/icon.svg")]
+    assert [(a["name"], a["url"], a["icon"]) for a in other] == [("ioPix", "https://photo.example.net", "https://photo.example.net/static/icons/mark.svg")]

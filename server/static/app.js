@@ -100,7 +100,7 @@ function buildNav() {
  *  suite_apps), the mark opens a menu of them, each a link to that app, and the name stays the link to the Dashboard. */
 let suiteApps = [];
 function brand(cls) {
-  const mark = () => h('img', { src: 'favicon.svg', alt: '', width: 24, height: 24, class: 'brand-mark' });
+  const mark = () => h('img', { src: 'static/icons/mark.svg', alt: '', width: 24, height: 24, class: 'brand-mark' });
   const name = (tag, attrs) => h(tag, attrs, h('span', { class: 'io' }, 'io'), h('span', { class: 'nm' }, 'Health'));
   if (!suiteApps.length) return h('a', { class: cls, href: '#/', title: 'Dashboard' }, mark(), name('span', { class: 'brand-name' }));
   return h('div', { class: cls },
@@ -2759,7 +2759,7 @@ function toast(text, ms = 3000) {
 const avatar = (a, big = false) => h('span', { class: 'avatar' + (big ? ' big' : '') }, ((a && (a.displayName || a.name)) || '?')[0].toUpperCase());
 
 /** The brand above the sign-in's title, as in iopix: the logo and the name. */
-const signinBrand = () => h('div', { class: 'signin-brand' }, h('img', { class: 'logo', src: 'apple-touch-icon.png', alt: '' }),
+const signinBrand = () => h('div', { class: 'signin-brand' }, h('img', { class: 'logo', src: 'static/icons/mark.svg', alt: '' }),
   h('span', { class: 'brand-name' }, h('span', { class: 'io' }, 'io'), h('span', { class: 'nm' }, 'Health')));
 
 let signingIn = false;
