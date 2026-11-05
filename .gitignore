@@ -7,5 +7,3 @@ DerivedData/
 *.sqlite-journal
 *.csv/
 iOS/Info.plist
-Mac/Info.plist
-ExportImporter/Info.plist

@@ -23,8 +23,7 @@ why there are two parts:
 |---|---|
 | `server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iosuite-shared](https://github.com/avandeputte/iosuite-shared) library (Python package `iothing-auth`), like ioPix, ioNotes and ioContacts |
 | `iOS/` | the iPhone app |
-| `Shared/` | the upload line format (`SyncProtocol.swift`) shared by the apps |
-| `Mac/`, `ExportImporter/` | legacy macOS tools (a SQLite receiver the phone no longer talks to, and an importer for the Health app's `export.zip`) |
+| `Shared/` | the upload line format (`SyncProtocol.swift`) used by the iPhone app |
 | `project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec that generates the Xcode project |
 | `ioHealth/server` | a link to `server/`, kept so servers installed before v2.4.1 (whose `update.sh` still looks there) can update; it can go once those have updated |
 | `.github/workflows/receiver-image.yml` | runs the server's tests and builds and publishes its image |
