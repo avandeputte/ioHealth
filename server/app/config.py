@@ -1,7 +1,7 @@
 """Settings, all from the environment (the container's environment or a .env file loaded by docker compose).
 
 The health data lives in MariaDB/MySQL (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD); the accounts and
-suite-wide settings live in the Shared ioSuite database (IOTHING_AUTH_DB_*, the names the iothing-auth library reads),
+suite-wide settings live in the Shared ioSuite database (IOSUITE_DB_*),
 which defaults to the same server as the health data, with database and user `iosuite`.
 """
 import os
@@ -23,12 +23,12 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 DB_NAME = env("DB_NAME", "health")
 
 # The Shared ioSuite database: the same MariaDB server as the health data unless told otherwise, `iosuite` for the
-# database and its user. Set before iothing_auth is imported, which reads them once.
-os.environ.setdefault("IOTHING_AUTH_DB_HOST", DB_HOST)
-os.environ.setdefault("IOTHING_AUTH_DB_PORT", str(DB_PORT))
-SUITE_DB_NAME = env("IOTHING_AUTH_DB_NAME", "iosuite")
-os.environ["IOTHING_AUTH_DB_NAME"] = SUITE_DB_NAME
-os.environ["IOTHING_AUTH_DB_USER"] = env("IOTHING_AUTH_DB_USER", "iosuite")
+# database and its user. Set before iosuite_shared is imported, which reads them once.
+os.environ.setdefault("IOSUITE_DB_HOST", DB_HOST)
+os.environ.setdefault("IOSUITE_DB_PORT", str(DB_PORT))
+SUITE_DB_NAME = env("IOSUITE_DB_NAME", "iosuite")
+os.environ["IOSUITE_DB_NAME"] = SUITE_DB_NAME
+os.environ["IOSUITE_DB_USER"] = env("IOSUITE_DB_USER", "iosuite")
 
 LISTEN_ADDR = env("LISTEN_ADDR", ":47800")
 TLS_CERT_FILE = env("TLS_CERT_FILE")
@@ -41,11 +41,11 @@ MAP_TILE_ATTRIBUTION = env("MAP_TILE_ATTRIBUTION", '&copy; <a href="https://www.
 TZ = env("TZ", "UTC")
 
 # PUBLIC_URL: the address the suite's start page and other apps link to (https://health.example.com). Empty: the best
-# address ioHealth is reached at, noted by iothing-auth (a host under IOTHING_COOKIE_DOMAIN over HTTPS first).
+# address ioHealth is reached at, noted by iosuite-shared (a host under IOTHING_COOKIE_DOMAIN over HTTPS first).
 PUBLIC_URL = env("PUBLIC_URL").rstrip("/")
 
 # the server log, for Maintenance › Updates and logs (empty: none). Updates: IOHEALTH_REPO, IOHEALTH_BRANCH and
-# UPDATE_CHECK are read by iothing_auth.updates (app.auth.updater)
+# UPDATE_CHECK are read by iosuite_shared.updates (app.auth.updater)
 LOG_FILE = Path(env("LOG_FILE", str(APP_DIR / "iohealth.log"))) if env("LOG_FILE", "x") else None
 
 

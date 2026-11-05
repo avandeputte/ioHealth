@@ -1,12 +1,12 @@
 """Admins: Maintenance › Storage and backups and Uploads (the database and its tables, the hourly rollup, the last
 upload of every account), laid out as in ioContacts and ioCalendar. The version, updates, restart and the server log
-(Maintenance › Updates and logs) are iothing_auth's server_router, mounted in app/main.py.
+(Maintenance › Updates and logs) are iosuite_shared's server_router, mounted in app/main.py.
 
 Maintenance answers from the server's own statistics: the row counts are information_schema's estimates, not a
 COUNT(*) per table, which on tens of millions of samples and heartbeats took many seconds every time the page opened."""
 from fastapi import APIRouter
 from fastapi.responses import ORJSONResponse
-from iothing_auth import users as shared
+from iosuite_shared import users as shared
 
 from app import __version__, access, config, db, webapi
 
@@ -21,7 +21,7 @@ def _database() -> dict:
 
 
 def _suite_database() -> dict:
-    return {"host": config.env("IOTHING_AUTH_DB_HOST", config.DB_HOST), "name": config.SUITE_DB_NAME}
+    return {"host": config.env("IOSUITE_DB_HOST", config.DB_HOST), "name": config.SUITE_DB_NAME}
 
 
 @router.get("/api/maintenance", dependencies=[access.admin])

@@ -50,7 +50,6 @@ ask_app_settings() {
     IOHEALTH_DB="$h:$p/$d:$u:$w"
   fi
   local dbhost="${IOHEALTH_DB%%:*}" r="${IOHEALTH_DB#*:}"; local dbport="${r%%/*}"
-  IOHEALTH_SUITE_DB="${IOHEALTH_SUITE_DB:-${IOHEALTH_AUTH_DB:-}}"  # IOHEALTH_AUTH_DB: the older name
   if [[ -z "${IOHEALTH_SUITE_DB:-}" ]]; then
     h=$(whiptail --backtitle "$bt" --inputbox "Host of the Shared ioSuite database, the one ioPix, ioNotes and ioContacts use (accounts, passwords, sessions and suite-wide settings are shared)" 11 76 "$dbhost" 3>&1 1>&2 2>&3) || exit 1
     p=$(whiptail --backtitle "$bt" --inputbox "Port" 9 60 "$dbport" 3>&1 1>&2 2>&3) || exit 1

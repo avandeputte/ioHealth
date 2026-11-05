@@ -21,7 +21,7 @@ why there are two parts:
 
 | path | what |
 |---|---|
-| `server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iosuite-shared](https://github.com/avandeputte/iosuite-shared) library (Python package `iothing-auth`), like ioPix, ioNotes and ioContacts |
+| `server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iosuite-shared](https://github.com/avandeputte/iosuite-shared) library (Python package `iosuite-shared`), like ioPix, ioNotes and ioContacts |
 | `iOS/` | the iPhone app |
 | `Shared/` | the upload line format (`SyncProtocol.swift`) used by the iPhone app |
 | `project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec that generates the Xcode project |
@@ -55,8 +55,8 @@ installs write; `setup.sh` asks for the important ones); never commit real value
 | `DB_PORT` | no | default `3306` |
 | `DB_USER`, `DB_PASSWORD` | yes | a user that may create tables in `DB_NAME` (and the database itself, ideally) |
 | `DB_NAME` | no | default `health` |
-| `IOTHING_AUTH_DB_HOST`, `IOTHING_AUTH_DB_PORT` | no | the server with the Shared ioSuite database; default: the same as `DB_HOST` / `DB_PORT` |
-| `IOTHING_AUTH_DB_NAME`, `IOTHING_AUTH_DB_USER`, `IOTHING_AUTH_DB_PASSWORD` | yes | the Shared ioSuite database (accounts and suite-wide settings; name and user `iosuite` by default) and a user that may create tables in it. The variables keep the `IOTHING_AUTH_DB_` names the iothing-auth library reads |
+| `IOSUITE_DB_HOST`, `IOSUITE_DB_PORT` | no | the server with the Shared ioSuite database; default: the same as `DB_HOST` / `DB_PORT` |
+| `IOSUITE_DB_NAME`, `IOSUITE_DB_USER`, `IOSUITE_DB_PASSWORD` | yes | the Shared ioSuite database (accounts and suite-wide settings; name and user `iosuite` by default) and a user that may create tables in it |
 | `IOTHING_COOKIE_DOMAIN` | no | the domain the session cookie is shared on (`example.com`): signed in at `photos.example.com` is signed in at `health.example.com` too; a LAN address gets its own cookie |
 | `ADMIN_USER`, `ADMIN_PASSWORD` | no | the first account, created on a first start with an empty Shared ioSuite database (or create it from the sign-in screen instead) |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | no | set both (and mount the files) to serve HTTPS directly instead of behind a proxy |
@@ -92,10 +92,10 @@ services:
       DB_PASSWORD: change-me
       DB_NAME: health                 # created on first start if the user may; tables are always created/migrated
       # --- The accounts and suite-wide settings: the Shared ioSuite database, as in ioPix, ioNotes and ioContacts ---
-      # IOTHING_AUTH_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
-      IOTHING_AUTH_DB_NAME: iosuite
-      IOTHING_AUTH_DB_USER: iosuite
-      IOTHING_AUTH_DB_PASSWORD: change-me
+      # IOSUITE_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
+      IOSUITE_DB_NAME: iosuite
+      IOSUITE_DB_USER: iosuite
+      IOSUITE_DB_PASSWORD: change-me
       # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
       # ADMIN_USER: alex                     # the first account, on an empty Shared ioSuite database
       # ADMIN_PASSWORD: change-me-please
@@ -149,9 +149,9 @@ DB_PORT=3306
 DB_USER=health
 DB_PASSWORD=change-me
 DB_NAME=health
-IOTHING_AUTH_DB_NAME=iosuite
-IOTHING_AUTH_DB_USER=iosuite
-IOTHING_AUTH_DB_PASSWORD=change-me
+IOSUITE_DB_NAME=iosuite
+IOSUITE_DB_USER=iosuite
+IOSUITE_DB_PASSWORD=change-me
 # IOTHING_COOKIE_DOMAIN=example.com
 # ADMIN_USER=alex
 # ADMIN_PASSWORD=change-me-please
@@ -168,7 +168,7 @@ IOTHING_AUTH_DB_PASSWORD=change-me
 ```sh
 docker run -d --name iohealth --restart unless-stopped -p 47800:47800 \
   -e DB_HOST=192.168.1.10 -e DB_USER=health -e DB_PASSWORD=change-me -e DB_NAME=health \
-  -e IOTHING_AUTH_DB_NAME=iosuite -e IOTHING_AUTH_DB_USER=iosuite -e IOTHING_AUTH_DB_PASSWORD=change-me \
+  -e IOSUITE_DB_NAME=iosuite -e IOSUITE_DB_USER=iosuite -e IOSUITE_DB_PASSWORD=change-me \
   ghcr.io/avandeputte/iohealth:latest
 docker logs -f iohealth
 ```
@@ -206,14 +206,13 @@ git clone https://github.com/avandeputte/ioHealth && cd ioHealth/server
 ```
 
 `setup.sh` takes flags instead of questions (`--db`, `--suite-db`, `--tz`, `--port`, `--cookie-domain`, `--admin`,
-`--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_SUITE_DB` and `IOHEALTH_ADMIN` in the environment;
-the older `--auth-db` and `IOHEALTH_AUTH_DB` still work),
+`--yes`; the passwords can come from `IOHEALTH_DB`, `IOHEALTH_SUITE_DB` and `IOHEALTH_ADMIN` in the environment),
 writes `.env` (readable by the owner only), makes `.venv` (Python 3.11 or later), installs the `iohealth` systemd
 service and waits until it answers. Without the service, `./run.sh` starts it in the foreground from the same `.env`; a
 launchd job `net.iothing.iohealth.server` on a Mac can run that script, and "Update now" in the web app restarts
 either. `python -m pytest tests` (after `pip install -e ".[test]"`) runs the tests against a real MariaDB
 (`IOHEALTH_TEST_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD`; default `127.0.0.1`, `health`/`health`; it makes and drops
-databases of its own, `health_test`, `auth_test_iohealth` and `health_mig_test`, so the user needs `CREATE` and `DROP`).
+databases of its own, `health_test`, `iosuite_test_iohealth` and `health_mig_test`, so the user needs `CREATE` and `DROP`).
 
 ### Updating
 
@@ -223,7 +222,7 @@ databases of its own, `health_test`, `auth_test_iohealth` and `health_mig_test`,
   there is no checkout), installs the packages the new version asks for and only then moves the code in, then
   restarts the service. `--check` only reports; `IOHEALTH_REF=<sha>` installs that commit.
 - **From the web app:** Maintenance › Updates and logs (admins), the same page in every ioThing app (it comes from
-  `iothing_auth.updates` in iosuite-shared, at `/api/server` and `/api/log`), shows the installed version and commit,
+  `iosuite_shared.updates` in iosuite-shared, at `/api/server` and `/api/log`), shows the installed version and commit,
   "Check for updates" compares it with GitHub's `main`, and "Update now" runs `update.sh` (in Docker it says to pull
   instead); below it the tail of the server log (`iohealth.log` next to the app; `LOG_FILE` moves it, empty switches it
   off) and Restart. A daily check (on by default; `UPDATE_CHECK=0` locks it off, the page switches it off) shows admins
@@ -327,7 +326,7 @@ screen it stays docked beside the page, or its button puts it away (remembered) 
 the page when needed. On phones the same pages are a bottom bar (Dashboard, Day, Metrics, Workouts) with the rest
 under More.
 
-**Accounts** are the ioThing suite's shared accounts ([iosuite-shared](https://github.com/avandeputte/iosuite-shared), Python package `iothing-auth`: the
+**Accounts** are the ioThing suite's shared accounts ([iosuite-shared](https://github.com/avandeputte/iosuite-shared): the
 Shared ioSuite database in MariaDB, shared with ioPix, ioNotes and ioContacts), so one name, password and session serve every app, and
 someone signed in at `photos.example.com` is signed in at `health.example.com` too when the apps share a domain
 (`IOTHING_COOKIE_DOMAIN`). What is ioHealth's own is kept per app: the role an account holds here, its settings and

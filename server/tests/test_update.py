@@ -1,4 +1,4 @@
-"""The version check (Maintenance › Updates and logs, iothing_auth's server_router) and Maintenance: admins only, and the "a newer
+"""The version check (Maintenance › Updates and logs, iosuite_shared's server_router) and Maintenance: admins only, and the "a newer
 version is out" banner while the daily check is on."""
 from app import __version__
 from app.auth import updater

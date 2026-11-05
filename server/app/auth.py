@@ -1,6 +1,6 @@
-"""The shared ioThing accounts (iothing-auth), as ioHealth uses them.
+"""The shared ioThing accounts (iosuite-shared), as ioHealth uses them.
 
-Accounts, passwords, sessions and roles live in the Shared ioSuite database (IOTHING_AUTH_DB_*), shared with ioPix,
+Accounts, passwords, sessions and roles live in the Shared ioSuite database (IOSUITE_DB_*), shared with ioPix,
 ioNotes and ioContacts: one sign-in serves every app on the domain (IOTHING_COOKIE_DOMAIN). What is ioHealth's own
 stays here: the role an account holds in ioHealth, and its health data, which nobody else sees.
 
@@ -12,15 +12,15 @@ import os
 import subprocess
 
 from fastapi import HTTPException, Request
-from iothing_auth.fastapi import Auth
-from iothing_auth.updates import Updater
+from iosuite_shared.fastapi import Auth
+from iosuite_shared.updates import Updater
 
 from app import __version__, config
 
 APP = "iohealth"
 log = logging.getLogger("app.auth")
 
-# version, public_url, description, color and icon: ioHealth's row in the suite's list of apps (iothing_auth.suite),
+# version, public_url, description, color and icon: ioHealth's row in the suite's list of apps (iosuite_shared.suite),
 # written on the first request, so the start page (ioSuite) and the other apps find it
 auth = Auth(APP, app_label="ioHealth", version=__version__, public_url=config.PUBLIC_URL or None,
             description="Health and fitness", color="#e8445a", icon="/favicon.svg")
