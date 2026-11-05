@@ -2557,10 +2557,10 @@ async function setServer() {
 
 async function maintUpdates() {
   const el = h('div');
-  const draw = async () => {
+  const draw = async (first = false) => {
     let s;
     try { s = await authApi('api/server'); } catch (e) { el.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
-    if (!el.isConnected) return;
+    if (!first && !el.isConnected) return;  // the page moved on (the first draw runs before the tab is in the page)
     const c = s.check, p = s.progress, last = s.lastUpdate;
     const state = h('p', { style: { marginTop: 0 }, class: p.error || (c && c.status === 'error') ? 'error' : '' }, p.running ? 'Updating… ioHealth restarts when it is done, and this page reloads.'
       : p.error ? `The last update failed: ${p.error}`
@@ -2600,7 +2600,7 @@ async function maintUpdates() {
       } }, 'Restart ioHealth'))));
     if (p.running) setTimeout(() => { if (el.isConnected) draw(); }, 4000);
   };
-  await draw();
+  await draw(true);
   return [el];
 }
 
