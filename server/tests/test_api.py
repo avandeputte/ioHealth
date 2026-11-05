@@ -158,6 +158,58 @@ def test_sleep_glucose_and_deletes(client, admin):
     assert db.one("SELECT uuid FROM deleted_objects")[0] == "g0"
 
 
+def workout_msg(uuid, stats, events=()):
+    return {"workout": {"_0": {
+        "uuid": uuid, "activityType": "running", "activityTypeRaw": 37, "start": "2026-10-01T07:00:00Z", "end": "2026-10-01T07:30:00Z", "duration": 1800,
+        "source": {"name": "Watch"}, "statistics": [{"type": t, "unit": "km", "sum": v} for t, v in stats],
+        "events": [{"type": e, "start": "2026-10-01T07:10:00Z", "end": "2026-10-01T07:11:00Z"} for e in events], "activities": []}}}
+
+
+def route_point(workout, route, minute, lat=50.0):
+    return {"routePoint": {"_0": {"workoutUUID": workout, "routeUUID": route, "time": f"2026-10-01T07:{minute:02d}:00Z", "latitude": lat, "longitude": 4.0}}}
+
+
+def test_workout_children_follow_the_workout(client, admin):
+    pw = app_password(client)
+    upload(client, pw, workout_msg("w1", [("distance_walking_running", 5), ("heart_rate", 150)], ["pause"]),
+           route_point("w1", "r1", 1), route_point("w1", "r1", 2), sample("hb1", "heartbeat_series", T0, None, None, "heartbeatSeries"),
+           {"heartbeat": {"seriesUUID": "hb1", "timeSinceStart": 0.5}}, {"heartbeat": {"seriesUUID": "hb1", "timeSinceStart": 1.2}})
+    # a resent workout keeps only the statistics it still has
+    upload(client, pw, workout_msg("w1", [("distance_walking_running", 6)]))
+    assert db.q("SELECT type, sum FROM workout_statistics WHERE workout_uuid = 'w1'") == [("distance_walking_running", 6)]
+    # deleting the workout and the heartbeat series takes their rows with them
+    upload(client, pw, {"deleted": {"uuid": "w1", "type": "workout"}}, {"deleted": {"uuid": "hb1", "type": "heartbeat_series"}})
+    for t in ("workout_statistics", "workout_events", "workout_activities", "workout_route_points"):
+        assert db.one(f"SELECT COUNT(*) FROM {t} WHERE workout_uuid = 'w1'")[0] == 0, t
+    assert db.one("SELECT COUNT(*) FROM heartbeats")[0] == 0
+
+
+def test_another_account_cannot_add_to_a_workout(client, admin):
+    alex_pw = app_password(client)
+    upload(client, alex_pw, workout_msg("w1", [("distance_walking_running", 5)]), route_point("w1", "r1", 1), route_point("w1", "r1", 2))
+    client.post("/api/users", json={"name": "bo", "password": "secretpw2", "role": "editor"})
+    client.cookies.clear()
+    client.post("/api/auth/login", json={"name": "bo", "password": "secretpw2"})
+    bo_pw = app_password(client, "Bo's phone")
+    upload(client, bo_pw, workout_msg("w1", [("heart_rate", 99)], ["pause"]), route_point("w1", "r2", 5, lat=10.0), route_point("w1", "r2", 6, lat=10.1))
+    client.cookies.clear()
+    client.post("/api/auth/login", json={"name": "alex", "password": "secretpw1"})
+    w = client.get("/api/workouts/w1").json()
+    assert [s["type"] for s in w["statistics"]] == ["distance_walking_running"] and w["events"] == []
+    assert all(abs(p[1] - 50) < 1 for p in w["route"])
+    rs = client.get("/api/routes", params={"from": "2026-09-01", "to": "2026-10-31"}).json()
+    assert len(rs) == 1 and all(abs(p[0] - 50) < 1 for p in rs[0]["points"])
+
+
+def test_oversized_upload_is_refused(client, admin, monkeypatch):
+    from app import upload as up
+    pw = app_password(client)
+    sid = client.post("/v1/sessions", json={"deviceName": "x"}, headers={"Authorization": f"Bearer {pw}"}).json()["sessionId"]
+    monkeypatch.setattr(up, "MAX_BODY", 1000)
+    r = client.post(f"/v1/sessions/{sid}/items", content=b"x" * 2000, headers={"Authorization": f"Bearer {pw}", "X-Batch-Seq": "1"})
+    assert r.status_code == 413
+
+
 def test_every_api_route_declares_access(app):
     from app import access
     for r in app.routes:
