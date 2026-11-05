@@ -6,16 +6,16 @@
 # MariaDB server, database, user and password for the health data, the same for the Shared ioSuite database
 # (accounts and suite-wide settings, the one ioPix, ioNotes and ioContacts use), the cookie domain, the first account, the time zone and the port. It
 # creates the container, puts the
-# server (ioHealth/server of the repository) in /opt/iohealth/app and runs its setup.sh inside, which installs the
+# server (server/ of the repository) in /opt/iohealth/app and runs its setup.sh inside, which installs the
 # packages, writes .env, installs the iohealth service and waits until it answers.
 #
 # Run on the Proxmox host as root:
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/ioHealth/server/proxmox/ct/iohealth.sh)"
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/server/proxmox/ct/iohealth.sh)"
 # Unattended: IOHEALTH_DB=host:port/db:user:password IOHEALTH_SUITE_DB=host:port/db:user:password
 #   IOHEALTH_TZ=Europe/Brussels IOHEALTH_PORT=47800 IOHEALTH_COOKIE_DOMAIN=example.com IOHEALTH_ADMIN=name:password
 #   in the environment answer the questions in advance. IOHEALTH_REF=<branch|sha> installs that instead of main.
 IOHEALTH_REF="${IOHEALTH_REF:-main}"
-export COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/avandeputte/ioHealth/${IOHEALTH_REF}/ioHealth/server/proxmox}"
+export COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/avandeputte/ioHealth/${IOHEALTH_REF}/server/proxmox}"
 _cs_boot="${COMMUNITY_SCRIPTS_CORE_DIR:-$(dirname "${BASH_SOURCE[0]}")/../../core}/core/build.func"
 source "$_cs_boot" 2>/dev/null || source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_URL:-https://raw.githubusercontent.com/community-scripts/core/main}/core/build.func")
 # Copyright (c) 2026 Alex Van de Putte
@@ -93,11 +93,11 @@ build_container
 description
 
 msg_info "Fetching ioHealth ($IOHEALTH_REF)"
-# the server is ioHealth/server of the repository; COMMIT records what was installed (update.sh compares against it)
+# the server is server/ of the repository; COMMIT records what was installed (update.sh compares against it)
 FETCH='set -e; cd /tmp; rm -rf iohealth-src; mkdir iohealth-src; cd iohealth-src
 sha=$(curl -fsSL -H "Accept: application/vnd.github+json" "https://api.github.com/repos/avandeputte/ioHealth/commits/'"$IOHEALTH_REF"'" | python3 -c "import sys, json; print(json.load(sys.stdin)[\"sha\"])")
 curl -fsSL "https://github.com/avandeputte/ioHealth/archive/$sha.tar.gz" | tar xz
-src=$(ls -d */ | head -1)ioHealth/server
+src=$(ls -d */ | head -1)server
 mkdir -p /opt/iohealth/app
 for i in app static pyproject.toml run.sh update.sh setup.sh .env.example; do cp -R "$src/$i" /opt/iohealth/app/; done
 echo "$sha" > /opt/iohealth/app/COMMIT

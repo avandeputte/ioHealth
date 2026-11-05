@@ -1,5 +1,5 @@
 #!/bin/sh
-# Update an installed ioHealth in place (a checkout, or a copy of ioHealth/server run with run.sh; Docker users
+# Update an installed ioHealth in place (a checkout, or a copy of server/ run with run.sh; Docker users
 # pull the image instead).
 #
 #   ./update.sh            fetch the latest code, refresh the packages, restart the service
@@ -11,7 +11,7 @@
 #     restart, so ioHealth can show it afterwards (its own child process dies in the restart)
 #
 # Keeps .env and the Python environment. A git checkout is pulled; an installed copy (no .git) is replaced from
-# the GitHub tarball (the server lives in ioHealth/server of the repository). The Python packages the new
+# the GitHub tarball (the server lives in server/ of the repository). The Python packages the new
 # version asks for are installed first, and the code moves only once that succeeded, so a failed package install
 # leaves the installed version running as it was. Settings › Server › Update now runs this script.
 set -e
@@ -21,7 +21,7 @@ REPO="${IOHEALTH_REPO:-avandeputte/ioHealth}"
 BRANCH="${IOHEALTH_BRANCH:-main}"
 REF="${IOHEALTH_REF:-$BRANCH}"
 RESULT="${IOHEALTH_RESULT:-}"
-SUBDIR="ioHealth/server"
+SUBDIR="server"
 case "$REF" in -*|*..*|*/*/*) printf 'error: bad ref: %s\n' "$REF" >&2; exit 1;; esac  # a commit id or a branch, never an option or a path
 FORCE=0; CHECK=0
 for a in "$@"; do case "$a" in --force) FORCE=1;; --check) CHECK=1;; *) printf 'error: unknown option %s (--check, --force)\n' "$a" >&2; exit 2;; esac; done
@@ -31,8 +31,8 @@ trap cleanup EXIT
 say() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 note() { [ -n "$RESULT" ] && printf '%s\n' "$*" > "$RESULT" 2>/dev/null || true; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; note "error: $*"; NOTED=1; exit 1; }
-# a checkout: the repository root is two levels up; an installed copy records its commit in COMMIT
-GITROOT=""; [ -d "$APP/../../.git" ] && GITROOT="$(cd "$APP/../.." && pwd)"
+# a checkout: the repository root is one level up; an installed copy records its commit in COMMIT
+GITROOT=""; [ -d "$APP/../.git" ] && GITROOT="$(cd "$APP/.." && pwd)"
 local_commit() { if [ -n "$GITROOT" ]; then git -C "$GITROOT" rev-parse HEAD 2>/dev/null; elif [ -f COMMIT ]; then cat COMMIT; else echo unknown; fi; }
 PYF="$(ls -d .venv/bin/python 2>/dev/null || command -v python3)"
 fetch() { "$PYF" -c 'import sys, urllib.request
