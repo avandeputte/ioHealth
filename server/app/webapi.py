@@ -228,11 +228,11 @@ def type_list(u: int) -> list:
                 if not n:
                     continue
                 t = {"type": name, "count": int(n), "first": ts(first), "last": ts(last), "since": last}
-            r = db.one("SELECT kind, unit FROM samples WHERE type = %s AND user_id = %s AND start_date >= %s ORDER BY start_date DESC LIMIT 1",
+            r = db.one("SELECT kind, unit, start_date FROM samples WHERE type = %s AND user_id = %s AND start_date >= %s ORDER BY start_date DESC LIMIT 1",
                        (name, u, t.pop("since")))
             if not r:
                 continue
-            t["kind"], t["unit"] = r[0], r[1] or ""
+            t["kind"], t["unit"], t["last"] = r[0], r[1] or "", ts(r[2])  # the rollup's last is only its hour
             t["cumulative"] = t["kind"] == "category" or an.is_cumulative(name)
             if t["kind"] == "category":
                 t["unit"] = "min"
@@ -392,7 +392,7 @@ def workout_list(u: int, frm, to) -> list:
     for uuid, at, s, e, dur, src, meta, has_route in db.q(
             """SELECT w.uuid, COALESCE(w.activity_type, ''), w.start_date, w.end_date, COALESCE(w.duration_s, 0),
             COALESCE(w.source_name, ''), COALESCE(w.metadata_json, '{}'),
-            EXISTS(SELECT 1 FROM workout_route_points p WHERE p.workout_uuid = w.uuid LIMIT 1)
+            EXISTS(SELECT 1 FROM workout_route_points p WHERE p.workout_uuid = w.uuid AND p.user_id = w.user_id LIMIT 1)
             FROM workouts w WHERE w.user_id = %s AND w.start_date >= %s AND w.start_date < %s ORDER BY w.start_date DESC""", (u, frm, to)):
         x = {"uuid": uuid, "activityType": at, "start": ts(s), "end": ts(e), "duration": float(dur), "source": src}
         apply_workout_meta(x, meta)
@@ -403,7 +403,7 @@ def workout_list(u: int, frm, to) -> list:
         return out
     for wid, typ, unit, avg, mx, sm in db.q(
             """SELECT s.workout_uuid, s.type, COALESCE(s.unit, ''), s.average, s.maximum, s.sum
-            FROM workout_statistics s JOIN workouts w ON w.uuid = s.workout_uuid
+            FROM workout_statistics s JOIN workouts w ON w.uuid = s.workout_uuid AND w.user_id = s.user_id
             WHERE w.user_id = %s AND w.start_date >= %s AND w.start_date < %s
             AND (s.type LIKE 'distance%%' OR s.type = 'active_energy_burned' OR s.type = 'heart_rate')""", (u, frm, to)):
         x = index.get(wid)
@@ -492,7 +492,7 @@ def workout(wid: str, request: Request):
         except ValueError:
             d["metadata"] = None
         d["statistics"] = maps("""SELECT type, unit, average, minimum, maximum, sum, most_recent FROM workout_statistics
-            WHERE workout_uuid = %s ORDER BY type""", (wid,))
+            WHERE workout_uuid = %s AND user_id = %s ORDER BY type""", (wid, u))
         for st in d["statistics"]:
             typ, unit = st.get("type") or "", st.get("unit") or ""
             if typ == "heart_rate":
@@ -505,9 +505,9 @@ def workout(wid: str, request: Request):
             elif typ.startswith("distance") and st.get("sum") is not None:
                 d["distance"] = an.to_metres(st["sum"], unit)
         d["events"] = maps("""SELECT type, UNIX_TIMESTAMP(start_date) AS start, UNIX_TIMESTAMP(end_date) AS end
-            FROM workout_events WHERE workout_uuid = %s ORDER BY start_date""", (wid,))
+            FROM workout_events WHERE workout_uuid = %s AND user_id = %s ORDER BY start_date""", (wid, u))
         d["activities"] = maps("""SELECT activity_type, UNIX_TIMESTAMP(start_date) AS start, UNIX_TIMESTAMP(end_date) AS end
-            FROM workout_activities WHERE workout_uuid = %s ORDER BY start_date""", (wid,))
+            FROM workout_activities WHERE workout_uuid = %s AND user_id = %s ORDER BY start_date""", (wid, u))
 
         d["series"], d["units"] = {}, {}
         hr = an.HRSeries()
@@ -565,7 +565,7 @@ def routes(request: Request):
         for wid, at, start, t, lat, lon, acc in db.q(
                 """SELECT p.workout_uuid, COALESCE(w.activity_type, ''), w.start_date, p.time, p.latitude, p.longitude,
                 COALESCE(p.horizontal_accuracy, 0)
-                FROM workouts w JOIN workout_route_points p ON p.workout_uuid = w.uuid
+                FROM workouts w JOIN workout_route_points p ON p.workout_uuid = w.uuid AND p.user_id = w.user_id
                 WHERE w.user_id = %s AND w.start_date >= %s AND w.start_date < %s AND (%s = '' OR w.activity_type = %s)
                 ORDER BY p.workout_uuid, p.time""", (u, frm, to, typ, typ)):
             if cur is None or cur["uuid"] != wid:

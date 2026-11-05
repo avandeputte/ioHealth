@@ -118,7 +118,7 @@ services:
 
 ```sh
 docker compose up -d
-curl http://localhost:47800/v1/health        # {"ok":true,"schemaVersion":9}
+curl http://localhost:47800/v1/health        # {"ok":true,"schemaVersion":10}
 ```
 
 Then open `http://localhost:47800/` and sign in (or, on an empty account database, create the first admin right
@@ -402,10 +402,10 @@ before these columns existed (schema versions below 5) have `NULL`.
 
 When the server first starts on schema 8 or later it fills `sample_hourly` for existing data in the background, one
 type and one month per transaction (small enough for a Galera cluster to replicate comfortably); charts read `samples`
-directly until each type is done, and the log says when it has finished. Schema 9 (ioHealth 2.0) adds `user_id`.
+directly until each type is done, and the log says when it has finished. Schema 9 (ioHealth 2.0) adds `user_id`; schema 10 adds it to the views below.
 
 Two views report how long samples take to arrive (`inserted_at` minus the sample's `end_date`, in minutes, which
-includes the Watch-to-iPhone hop): `sample_delay_by_type` (per type: count, min/avg/max delay, latest sample, latest
+includes the Watch-to-iPhone hop): `sample_delay_by_type` (per account and type: count, min/avg/max delay, latest sample, latest
 arrival) and `sample_delay_by_day` (the same per type and per day of arrival, UTC).
 
 Type names are the HealthKit identifier without its prefix, in snake_case (`HKQuantityTypeIdentifierHeartRateVariabilitySDNN`
@@ -443,7 +443,7 @@ are JSON `{"error": "…"}` with 400, 401, 403, 404 or 413.
 | `GET /v1/health` | | `{"ok":true,"schemaVersion":N}` |
 | `POST /v1/sessions` | `{"deviceName","systemVersion","fullResync"}` | 201 `{"sessionId":N}` |
 | `POST /v1/sessions/{id}/items` | NDJSON lines as in `Shared/SyncProtocol.swift`, optionally `Content-Encoding: gzip`; header `X-Batch-Seq: n` | `{"applied":k}` |
-| `POST /v1/sessions/{id}/finish` | `{"totalSent":N}` | `{"received":rows}` |
+| `POST /v1/sessions/{id}/finish` | `{"totalSent":N}` | `{"received":N}` (items the session applied) |
 
 Each batch is committed in one transaction together with its sequence number, so a batch resent after a lost reply is
 acknowledged (`"duplicate":true`) without being applied twice. Every write is an upsert keyed on HealthKit's UUIDs, so
