@@ -44,8 +44,9 @@ TZ = env("TZ", "UTC")
 # address ioHealth is reached at, noted by iothing-auth (a host under IOTHING_COOKIE_DOMAIN over HTTPS first).
 PUBLIC_URL = env("PUBLIC_URL").rstrip("/")
 
-# UPDATE_CHECK=0: never ask GitHub whether a newer version exists (the daily check, Maintenance › ioHealth version)
-UPDATE_CHECK = env("UPDATE_CHECK", "1") not in ("0", "false", "no", "off")
+# the server log, for Maintenance › Updates and logs (empty: none). Updates: IOHEALTH_REPO, IOHEALTH_BRANCH and
+# UPDATE_CHECK are read by iothing_auth.updates (app.auth.updater)
+LOG_FILE = Path(env("LOG_FILE", str(APP_DIR / "iohealth.log"))) if env("LOG_FILE", "x") else None
 
 
 def listen() -> tuple:
