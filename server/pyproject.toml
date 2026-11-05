@@ -17,7 +17,7 @@ dependencies = [
   "pymysql<2",
   "pyjwt[crypto]<3",   # Cloudflare Access tokens (proxy sign-in)
   "tzdata",            # the browser's time zone, on an image without zoneinfo
-  "iosuite-shared @ git+https://github.com/avandeputte/iosuite-shared.git@23d78873a6ff5a435c8761b52d86757f268a8ed2",   # 0.7.0, the ioThing suite's shared accounts and sessions
+  "iosuite-shared @ git+https://github.com/avandeputte/iosuite-shared.git@305c5a457d42c1989b0c29681df8dabd803abd0a",   # 0.7.0, the ioThing suite's shared accounts and sessions
 ]
 
 [project.optional-dependencies]
