@@ -14,6 +14,8 @@ def test_status_tells_admins_of_a_newer_version_while_the_daily_check_is_on(clie
         assert client.post("/api/server", json={"autoCheck": False}).json()["autoCheck"] is False
         assert client.get("/api/status").json()["update"] is None
         client.post("/api/server", json={"autoCheck": True})
+        assert client.get("/api/status").json()["update"] is None  # switching off forgot the last check; the next daily check fills it again
+        updater._checked.update(status="update", remote="abc1234", remoteVersion="9.9.9", remoteMessage="v9.9.9: new", remoteDate="2026-11-03")
         assert client.get("/api/status").json()["update"]["remote"] == "abc1234"
         # the same version under a newer commit (docs, workflow) is nothing to install
         updater._checked.update(status="current")
