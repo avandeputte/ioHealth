@@ -12,7 +12,7 @@ from app import __version__, access, config, db, webapi
 
 router = APIRouter(default_response_class=ORJSONResponse)
 
-TABLES = ("samples", "workouts", "workout_route_points", "heartbeats", "activity_summaries", "sample_hourly", "sync_log")
+TABLES = ("hlt_samples", "hlt_workouts", "hlt_workout_route_points", "hlt_heartbeats", "hlt_activity_summaries", "hlt_sample_hourly", "hlt_sync_log")
 
 
 def _database() -> dict:
@@ -29,7 +29,8 @@ def maintenance():
     """The health database: its tables (estimated rows and size on disk), the types, and the hourly rollup."""
     p = db.params()
     stats = {name: {"rows": int(rows or 0), "bytes": int(size or 0)} for name, rows, size in db.q(
-        "SELECT TABLE_NAME, TABLE_ROWS, DATA_LENGTH + INDEX_LENGTH FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s",
+        "SELECT TABLE_NAME, TABLE_ROWS, DATA_LENGTH + INDEX_LENGTH FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s "
+        "AND TABLE_NAME LIKE 'hlt\\_%%'",  # ioHealth's own: the database may hold the other apps' tables too
         (p["database"],))}
     tables = [{"name": t, **stats.get(t, {"rows": 0, "bytes": 0})} for t in TABLES]
     types = len(webapi.all_type_names())  # the samples index, cached
@@ -49,7 +50,7 @@ def uploads():
     syncs = [{"user": names.get(uid, f"#{uid}"), "started": db.unix(started), "finished": db.unix(finished), "device": device or "",
               "items": items or 0, "fullResync": bool(full)}
              for uid, started, finished, device, items, full in db.q(
-                 "SELECT s.user_id, s.started_at, s.finished_at, s.device, s.items, s.full_resync FROM sync_log s "
-                 "JOIN (SELECT user_id, MAX(id) id FROM sync_log GROUP BY user_id) m ON m.id = s.id ORDER BY s.started_at DESC")]
-    total = db.one("SELECT COUNT(*) FROM sync_log")[0]  # small: one row per sync
+                 "SELECT s.user_id, s.started_at, s.finished_at, s.device, s.items, s.full_resync FROM hlt_sync_log s "
+                 "JOIN (SELECT user_id, MAX(id) id FROM hlt_sync_log GROUP BY user_id) m ON m.id = s.id ORDER BY s.started_at DESC")]
+    total = db.one("SELECT COUNT(*) FROM hlt_sync_log")[0]  # small: one row per sync
     return {"syncs": syncs, "total": total}

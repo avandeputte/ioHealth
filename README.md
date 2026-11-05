@@ -295,7 +295,7 @@ icon, opening full-screen like an app (Android: Chrome's menu → Install app). 
 How the numbers are made: days and weeks (Monday to Sunday) follow the browser's time zone. Totals such as steps come
 from the source that counted the most in each period, so an iPhone and a Watch counting the same steps aren't added
 together. A night of sleep is everything from 18:00 to 18:00 the next day, taken from the app that recorded the most
-sleep that night. Settings are stored in the database (`web_settings`, per account), so they follow you to every browser.
+sleep that night. Settings are stored in the database (`hlt_user_settings`, per account), so they follow you to every browser.
 
 The web app's data comes from a JSON API under `/api/` (`types`, `series`, `workouts`, `workouts/{uuid}`, `routes`,
 `sleep`, `glucose`, `activity`, `profile`, `records`, `records/efforts`, `status`, and `settings`, which also takes `PUT`; for admins `maintenance`,
@@ -306,34 +306,34 @@ container.
 
 ## What you get
 
-All tables are InnoDB/utf8mb4 with timestamps in UTC as `DATETIME(3)`, and every data row has a `user_id`: the
-account it belongs to (its id in the shared account database's `users` table). `SELECT … WHERE user_id = 1` is one
+Every table is `hlt_<name>` (the suite's naming convention, so the apps can share one database), InnoDB/utf8mb4 with timestamps in UTC as `DATETIME(3)`, and every data row has a `user_id`: the
+account it belongs to (its id in the shared account database's `ios_users` table). `SELECT … WHERE user_id = 1` is one
 person; the examples below are for everyone at once.
 
 | table | contents |
 |---|---|
-| `samples` | every quantity and category sample: `type` (a short snake_case name: `heart_rate`, `step_count`, `sleep_analysis`, `vo2_max`…), `kind` (`quantity`/`category`/…), `value`, `unit`, `start_date`, `end_date`, `count` (more than 1 for samples some apps pre-aggregate), `text` (names for category values such as `asleep`, `deep`, `rem`, or audiogram points as JSON), `source_name` (the app or device that recorded it), `metadata_json` |
-| `workouts`, `workout_statistics`, `workout_events`, `workout_activities` | workouts and their per-workout heart rate / distance / energy stats, laps and pauses, and multisport segments |
-| `workout_route_points` | GPS traces (lat, lon, altitude, speed, course, accuracy) |
-| `heartbeats` | beat-to-beat intervals behind HRV readings |
-| `activity_summaries` | daily Move / Exercise / Stand rings and goals |
-| `characteristics` | date of birth, biological sex, blood type, skin type, wheelchair use |
-| `sample_hourly`, `sample_hourly_ready` | every type summed per UTC hour and source (sum, count, min, max), so charts and records over months or years read thousands of rows instead of millions; kept current by each sync |
-| `web_settings` | ioHealth's settings, per account |
-| `deleted_objects`, `sync_log`, `schema_version` | bookkeeping |
+| `hlt_samples` | every quantity and category sample: `type` (a short snake_case name: `heart_rate`, `step_count`, `sleep_analysis`, `vo2_max`…), `kind` (`quantity`/`category`/…), `value`, `unit`, `start_date`, `end_date`, `count` (more than 1 for samples some apps pre-aggregate), `text` (names for category values such as `asleep`, `deep`, `rem`, or audiogram points as JSON), `source_name` (the app or device that recorded it), `metadata_json` |
+| `hlt_workouts`, `hlt_workout_statistics`, `hlt_workout_events`, `hlt_workout_activities` | workouts and their per-workout heart rate / distance / energy stats, laps and pauses, and multisport segments |
+| `hlt_workout_route_points` | GPS traces (lat, lon, altitude, speed, course, accuracy) |
+| `hlt_heartbeats` | beat-to-beat intervals behind HRV readings |
+| `hlt_activity_summaries` | daily Move / Exercise / Stand rings and goals |
+| `hlt_characteristics` | date of birth, biological sex, blood type, skin type, wheelchair use |
+| `hlt_sample_hourly`, `hlt_sample_hourly_ready` | every type summed per UTC hour and source (sum, count, min, max), so charts and records over months or years read thousands of rows instead of millions; kept current by each sync |
+| `hlt_user_settings` | ioHealth's settings, per account |
+| `hlt_deleted_objects`, `hlt_sync_log`, `hlt_schema_version` | bookkeeping |
 
-Every data table also has `inserted_at` (when the server first stored the row) and `updated_at` (when its values last
-changed; equal to `inserted_at` until then), both UTC. Resending unchanged data touches neither. The lap, pause and
+Every data table also has `created_at` (when the server first stored the row) and `updated_at` (when its values last
+changed; equal to `created_at` until then), both UTC. Resending unchanged data touches neither. The lap, pause and
 multisport rows of a workout are rewritten whenever the workout is resent, so theirs restart then. Rows written
 before these columns existed (schema versions below 5) have `NULL`.
 
-When the server first starts on schema 8 or later it fills `sample_hourly` for existing data in the background, one
-type and one month per transaction (small enough for a Galera cluster to replicate comfortably); charts read `samples`
-directly until each type is done, and the log says when it has finished. Schema 9 (ioHealth 2.0) adds `user_id`; schema 10 adds it to the views below.
+When the server first starts on schema 8 or later it fills `hlt_sample_hourly` for existing data in the background, one
+type and one month per transaction (small enough for a Galera cluster to replicate comfortably); charts read `hlt_samples`
+directly until each type is done, and the log says when it has finished. Schema 9 (ioHealth 2.0) adds `user_id`; schema 10 adds it to the views below; schema 11 (ioHealth 2.8) gives every table, view and index the `hlt_` prefix and renames `inserted_at` to `created_at`, in place.
 
-Two views report how long samples take to arrive (`inserted_at` minus the sample's `end_date`, in minutes, which
-includes the Watch-to-iPhone hop): `sample_delay_by_type` (per account and type: count, min/avg/max delay, latest sample, latest
-arrival) and `sample_delay_by_day` (the same per type and per day of arrival, UTC).
+Two views report how long samples take to arrive (`created_at` minus the sample's `end_date`, in minutes, which
+includes the Watch-to-iPhone hop): `hlt_sample_delay_by_type` (per account and type: count, min/avg/max delay, latest sample, latest
+arrival) and `hlt_sample_delay_by_day` (the same per type and per day of arrival, UTC).
 
 Type names are the HealthKit identifier without its prefix, in snake_case (`HKQuantityTypeIdentifierHeartRateVariabilitySDNN`
 → `heart_rate_variability_sdnn`); the phone and the server share the rule (`HealthTypes.storageName`,
@@ -343,19 +343,19 @@ otherwise metric; the `unit` column always says which.
 ```sql
 -- resting heart rate, last 30 days
 SELECT DATE(start_date) d, ROUND(AVG(value)) bpm
-FROM samples WHERE type = 'resting_heart_rate'
+FROM hlt_samples WHERE type = 'resting_heart_rate'
 GROUP BY d ORDER BY d DESC LIMIT 30;
 
 -- how long after a measurement it reaches the database, slowest types first
-SELECT * FROM sample_delay_by_type ORDER BY avg_delay_min DESC;
+SELECT * FROM hlt_sample_delay_by_type ORDER BY avg_delay_min DESC;
 
 -- the same, today only
-SELECT * FROM sample_delay_by_day WHERE day = UTC_DATE() ORDER BY avg_delay_min DESC;
+SELECT * FROM hlt_sample_delay_by_day WHERE day = UTC_DATE() ORDER BY avg_delay_min DESC;
 
 -- hours of sleep per night by stage
 SELECT DATE(start_date - INTERVAL 12 HOUR) night, text stage,
        ROUND(SUM(TIMESTAMPDIFF(SECOND, start_date, end_date)) / 3600, 2) hours
-FROM samples WHERE type = 'sleep_analysis'
+FROM hlt_samples WHERE type = 'sleep_analysis'
 GROUP BY night, stage ORDER BY night DESC;
 ```
 

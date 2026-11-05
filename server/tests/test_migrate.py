@@ -44,16 +44,23 @@ def old_db():
 
 
 def test_schema_8_comes_up_to_date_in_place(old_db):
-    assert db.schema_version() == 8
+    assert db.one("SELECT MAX(version) FROM schema_version")[0] == 8  # the table took the hlt_ prefix in 11
     db.migrate()
     assert db.schema_version() == db.SCHEMA_VERSION
     # the rows are kept; user_id is there on every table (the pre-account rows read 0, nobody's)
-    assert db.one("SELECT user_id FROM samples WHERE uuid = 's1'")[0] == 0
-    assert db.one("SELECT user_id, value FROM characteristics") == (0, "1980-01-01")
-    assert db.one("SELECT user_id FROM sample_hourly")[0] == 0
+    assert db.one("SELECT user_id FROM hlt_samples WHERE uuid = 's1'")[0] == 0
+    assert db.one("SELECT user_id, value FROM hlt_characteristics") == (0, "1980-01-01")
+    assert db.one("SELECT user_id FROM hlt_sample_hourly")[0] == 0
+    # 11: the suite naming convention, every row kept
+    assert db.one("SELECT name, value FROM hlt_user_settings") == ("units", '"metric"')
+    assert db.one("SELECT created_at IS NOT NULL FROM hlt_samples WHERE uuid = 's1'")[0]
+    assert {r[0] for r in db.q("SHOW TABLES")} >= {"hlt_schema_version", "hlt_sample_delay_by_type", "hlt_sample_delay_by_day", "hlt_activity_summaries"}
+    assert not {r[0] for r in db.q("SHOW TABLES")} & {"samples", "schema_version", "web_settings", "sample_delay_by_type"}
+    assert db.one("SELECT samples FROM hlt_sample_delay_by_type WHERE type = 'step_count'")[0] == 1
+    assert "idx_hlt_samples_created" in {r[2] for r in db.q("SHOW INDEX FROM hlt_samples")}
     # keyed tables carry the account in their primary key: another account's row with the same key sits beside
-    db.ex("INSERT INTO characteristics (user_id, `key`, value) VALUES (8, 'dateOfBirth', '1990-01-01')")
-    db.ex("INSERT INTO activity_summaries (user_id, date, active_energy_kcal) VALUES (8, '2026-10-01', 5)")
-    assert db.one("SELECT COUNT(*) FROM characteristics")[0] == 2
+    db.ex("INSERT INTO hlt_characteristics (user_id, name, value) VALUES (8, 'dateOfBirth', '1990-01-01')")
+    db.ex("INSERT INTO hlt_activity_summaries (user_id, date, active_energy_kcal) VALUES (8, '2026-10-01', 5)")
+    assert db.one("SELECT COUNT(*) FROM hlt_characteristics")[0] == 2
     db.migrate()  # a second run is a no-op
     assert db.schema_version() == db.SCHEMA_VERSION
