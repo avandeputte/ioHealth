@@ -64,6 +64,20 @@ body.side-docked #menubtn, body.side-docked .topbrand { display: none; }
 .brand-name { font-size: 26px; font-weight: 700; letter-spacing: -.03em; white-space: nowrap; }
 .brand-name .io { color: var(--muted); } .brand-name .nm { color: var(--accent); }
 .topbrand .brand-name { font-size: 22px; }
+.brand-mark { flex: none; }
+/* the suite's app switcher: with other ioThing apps registered, the mark opens a menu of them (as in ioContacts) */
+.suitebtn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin: 0 -5px; padding: 0;
+  border: 0; border-radius: 8px; background: none; cursor: pointer; }
+.suitebtn:hover, .suitebtn:focus-visible { background: var(--line); }
+a.brand-name { color: var(--text); } a.brand-name:hover { text-decoration: none; }
+#nav .navhead a.brand-name { display: inline; height: auto; font-size: 26px; padding: 0 4px; gap: 0; border-radius: 0; background: none; }
+.suitepop { position: fixed; z-index: 2100; display: grid; grid-template-columns: repeat(var(--cols, 3), 92px); gap: 4px; padding: 8px; max-width: calc(100vw - 16px);
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .2); }
+.apptile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px 8px; border-radius: 10px; color: var(--text); text-align: center; min-width: 0; }
+.apptile:hover, .apptile:focus-visible { background: var(--bg); text-decoration: none; }
+.appic { width: 44px; height: 44px; border-radius: 12px; object-fit: contain; }
+.appic.fb { display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 18px; }
+.appnm { font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sync-status { margin-left: auto; padding-left: 8px; text-align: right; }
 
 /* ---- the sidebar: the name on top, the destinations in groups (each with its own hue), Settings and Maintenance at the
