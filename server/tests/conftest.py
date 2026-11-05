@@ -1,7 +1,7 @@
-"""Test set-up: a scratch health database and a scratch auth database on a real MariaDB, emptied before every test.
+"""Test set-up: a scratch health database and a scratch Shared ioSuite database on a real MariaDB, emptied before every test.
 
 IOHEALTH_TEST_DB_HOST / _PORT / _USER / _PASSWORD name the server (default 127.0.0.1:3306, health/health); the
-databases are health_test and auth_test_iohealth. The tests skip without a server. CI gets a service."""
+databases are health_test and iosuite_test_iohealth. The tests skip without a server. CI gets a service."""
 import os
 
 import pymysql
@@ -12,9 +12,9 @@ os.environ.update(DB_HOST=os.environ.get("IOHEALTH_TEST_DB_HOST", "127.0.0.1"), 
                   DB_NAME="health_test", TZ="Europe/Brussels")
 os.environ.pop("ADMIN_USER", None)
 os.environ.pop("ADMIN_PASSWORD", None)
-os.environ["IOTHING_AUTH_DB_NAME"] = "auth_test_iohealth"
-os.environ["IOTHING_AUTH_DB_USER"] = os.environ["DB_USER"]
-os.environ["IOTHING_AUTH_DB_PASSWORD"] = os.environ["DB_PASSWORD"]
+os.environ["IOSUITE_DB_NAME"] = "iosuite_test_iohealth"
+os.environ["IOSUITE_DB_USER"] = os.environ["DB_USER"]
+os.environ["IOSUITE_DB_PASSWORD"] = os.environ["DB_PASSWORD"]
 
 from app import db  # noqa: E402
 
@@ -53,7 +53,7 @@ def _client(app):
 
 @pytest.fixture(autouse=True)
 def clean(_client):
-    from iothing_auth import db as authdb, suite, users
+    from iosuite_shared import db as authdb, suite, users
     from app import webapi
     from app.auth import auth
     with db.conn() as con, con.cursor() as cur:

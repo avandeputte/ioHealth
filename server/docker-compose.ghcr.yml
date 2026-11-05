@@ -16,10 +16,10 @@ services:
       DB_PASSWORD: change-me
       DB_NAME: health                 # created on first start if the user may; tables are always created/migrated
       # --- The accounts and suite-wide settings: the Shared ioSuite database, as in ioPix, ioNotes and ioContacts ---
-      # IOTHING_AUTH_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
-      IOTHING_AUTH_DB_NAME: iosuite
-      IOTHING_AUTH_DB_USER: iosuite
-      IOTHING_AUTH_DB_PASSWORD: change-me
+      # IOSUITE_DB_HOST: 192.168.1.10   # same server as DB_HOST unless set
+      IOSUITE_DB_NAME: iosuite
+      IOSUITE_DB_USER: iosuite
+      IOSUITE_DB_PASSWORD: change-me
       # IOTHING_COOKIE_DOMAIN: example.com   # one sign-in for every app under the domain
       # ADMIN_USER: alex                     # the first account, on an empty Shared ioSuite database
       # ADMIN_PASSWORD: change-me-please

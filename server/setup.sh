@@ -11,7 +11,7 @@
 #        --cookie-domain DOMAIN   --tz ZONE   --port N (47800)   --admin NAME:PASSWORD
 #        --service | --no-service   --system-deps | --no-system-deps   --python PATH
 # Secrets can stay off the command line: IOHEALTH_DB, IOHEALTH_SUITE_DB and IOHEALTH_ADMIN in the environment do what
-# --db, --suite-db and --admin do (the older --auth-db and IOHEALTH_AUTH_DB still work). Run it again at any time: it
+# --db, --suite-db and --admin do. Run it again at any time: it
 # keeps .env and only changes what you answer.
 set -e
 cd "$(dirname "$0")"
@@ -21,7 +21,7 @@ die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 YES=0; DBS=""; SUITES=""; COOKIE=""; TZV=""; PORT=""; ADMIN=""; SERVICE=""; SYSDEPS=""; PY=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --yes) YES=1; shift;; --db) DBS="$2"; shift 2;; --suite-db|--auth-db) SUITES="$2"; shift 2;; --cookie-domain) COOKIE="$2"; shift 2;;
+    --yes) YES=1; shift;; --db) DBS="$2"; shift 2;; --suite-db) SUITES="$2"; shift 2;; --cookie-domain) COOKIE="$2"; shift 2;;
     --tz) TZV="$2"; shift 2;; --port) PORT="$2"; shift 2;; --admin) ADMIN="$2"; shift 2;;
     --service) SERVICE=1; shift;; --no-service) SERVICE=0; shift;; --system-deps) SYSDEPS=1; shift;; --no-system-deps) SYSDEPS=0; shift;;
     --python) PY="$2"; shift 2;;
@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$DBS" ] || DBS="${IOHEALTH_DB:-}"
-[ -n "$SUITES" ] || SUITES="${IOHEALTH_SUITE_DB:-${IOHEALTH_AUTH_DB:-}}"
+[ -n "$SUITES" ] || SUITES="${IOHEALTH_SUITE_DB:-}"
 [ -n "$ADMIN" ] || ADMIN="${IOHEALTH_ADMIN:-}"
 ask() { _v="$1"; _q="$2"; _d="$3"
   if [ "$YES" = 1 ] || [ ! -t 0 ]; then eval "$_v=\"\$_d\""; return; fi
@@ -43,7 +43,7 @@ split() {  # HOST:PORT/DATABASE:USER:PASSWORD into $1_HOST, $1_PORT, $1_NAME, $1
   _s="$2"; eval "$1_HOST=\"\${_s%%:*}\""; _r="${_s#*:}"; eval "$1_PORT=\"\${_r%%/*}\""; _r="${_r#*/}"
   eval "$1_NAME=\"\${_r%%:*}\""; _r="${_r#*:}"; eval "$1_USER=\"\${_r%%:*}\""; eval "$1_PASSWORD=\"\${_r#*:}\""; }
 
-# ---- system packages (Python 3.11+ with venv, and git for the iothing-auth package from the iosuite-shared repository)
+# ---- system packages (Python 3.11+ with venv, and git for the iosuite-shared package from the iosuite-shared repository)
 if [ "$SYSDEPS" != 0 ] && { ! python3 -c 'import sys, venv, ensurepip; assert sys.version_info >= (3, 11)' 2>/dev/null || ! command -v git >/dev/null; }; then
   say "Installing Python and git"
   if command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip git curl >/dev/null
@@ -65,16 +65,16 @@ elif [ -z "$(getenv DB_HOST)" ] || [ "$YES" = 0 ]; then
   asksecret W "Password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv DB_PASSWORD)"
   setenv DB_HOST "$H"; setenv DB_PORT "$P"; setenv DB_NAME "$D"; setenv DB_USER "$U"; setenv DB_PASSWORD "$W"
 fi
-# the Shared ioSuite database; the IOTHING_AUTH_DB_* names are the ones the iothing-auth library reads
+# the Shared ioSuite database (IOSUITE_DB_*)
 if [ -n "$SUITES" ]; then
   split A "$SUITES"
-  setenv IOTHING_AUTH_DB_HOST "$A_HOST"; setenv IOTHING_AUTH_DB_PORT "$A_PORT"; setenv IOTHING_AUTH_DB_NAME "$A_NAME"
-  setenv IOTHING_AUTH_DB_USER "$A_USER"; setenv IOTHING_AUTH_DB_PASSWORD "$A_PASSWORD"
+  setenv IOSUITE_DB_HOST "$A_HOST"; setenv IOSUITE_DB_PORT "$A_PORT"; setenv IOSUITE_DB_NAME "$A_NAME"
+  setenv IOSUITE_DB_USER "$A_USER"; setenv IOSUITE_DB_PASSWORD "$A_PASSWORD"
 elif [ "$YES" = 0 ] && [ -t 0 ]; then
-  N="$(getenv IOTHING_AUTH_DB_NAME)"; U="$(getenv IOTHING_AUTH_DB_USER)"
+  N="$(getenv IOSUITE_DB_NAME)"; U="$(getenv IOSUITE_DB_USER)"
   ask N "Shared ioSuite database (accounts and suite-wide settings, on the same server)" "${N:-iosuite}"; ask U "Its user" "${U:-iosuite}"
-  asksecret W "Its password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv IOTHING_AUTH_DB_PASSWORD)"
-  setenv IOTHING_AUTH_DB_NAME "$N"; setenv IOTHING_AUTH_DB_USER "$U"; setenv IOTHING_AUTH_DB_PASSWORD "$W"
+  asksecret W "Its password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv IOSUITE_DB_PASSWORD)"
+  setenv IOSUITE_DB_NAME "$N"; setenv IOSUITE_DB_USER "$U"; setenv IOSUITE_DB_PASSWORD "$W"
 fi
 [ -n "$COOKIE" ] || { C="$(getenv IOTHING_COOKIE_DOMAIN)"; ask COOKIE "Domain the sign-in is shared on, e.g. example.com (empty: none)" "$C"; }
 [ -n "$COOKIE" ] && setenv IOTHING_COOKIE_DOMAIN "$COOKIE"

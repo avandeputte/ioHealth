@@ -1,7 +1,7 @@
 """ioHealth: the iPhone app's upload API and the fitness web app, on one port (47800), over the ioThing suite's
-shared accounts (iothing-auth, as in ioPix, ioNotes and ioContacts).
+shared accounts (iosuite-shared, as in ioPix, ioNotes and ioContacts).
 
-Who may call a route is declared on the route (app/access.py); iothing-auth's middleware works out who is asking
+Who may call a route is declared on the route (app/access.py); iosuite-shared's middleware works out who is asking
 (the shared session cookie, the identity a reverse proxy such as Cloudflare Access vouches for, or a bearer app
 password), whether sign-in is required at all (it always is here: health data is private), and refuses cross-site
 writes.
@@ -13,8 +13,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from iothing_auth import users as shared
-from iothing_auth.proxyauth import remember_peer
+from iosuite_shared import users as shared
+from iosuite_shared.proxyauth import remember_peer
 
 from app import config, db, maintenance, upload, webapi
 from app.auth import APP, auth, updater

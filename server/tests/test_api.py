@@ -236,7 +236,7 @@ def test_the_phone_signs_in_with_the_account_password(client, admin):
 
 
 def test_registers_in_the_suite_list(client):
-    from iothing_auth import suite
+    from iosuite_shared import suite
     from app import __version__
     assert suite.get("iohealth") is None
     client.get("/v1/health")
@@ -248,7 +248,7 @@ def test_registers_in_the_suite_list(client):
 def test_suite_apps_for_the_app_switcher(client):
     """The app mark becomes a menu of the suite's other apps: /api/auth/suite lists them with an address and an
     absolute icon, ioHealth among them."""
-    from iothing_auth import suite
+    from iosuite_shared import suite
     client.get("/v1/health")
     suite.register("iopix", name="ioPix", url="https://photo.example.net", color="#123456", icon="/static/icon.svg")
     r = client.get("/api/auth/suite").json()

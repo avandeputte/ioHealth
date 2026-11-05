@@ -96,7 +96,7 @@ function buildNav() {
 }
 
 /** The app mark and name, top left (in the sidebar, and in the top bar while the sidebar is put away or on a phone).
- *  Alone, it is the link to the Dashboard. When other ioThing apps are registered in the suite (iothing-auth's
+ *  Alone, it is the link to the Dashboard. When other ioThing apps are registered in the suite (iosuite-shared's
  *  suite_apps), the mark opens a menu of them, each a link to that app, and the name stays the link to the Dashboard. */
 let suiteApps = [];
 function brand(cls) {
@@ -2604,7 +2604,7 @@ async function maintUpdates() {
   return [el];
 }
 
-/** The tail of the server log (GET /api/log from iothing-auth): a level filter, a search, Reload and Download. */
+/** The tail of the server log (GET /api/log from iosuite-shared): a level filter, a search, Reload and Download. */
 function logCard() {
   const level = h('select', {}, [['any', 'Everything'], ['warning', 'Warnings and errors'], ['error', 'Errors'], ['auth', 'Sign-ins']].map(([v, l]) => h('option', { value: v }, l)));
   const contains = h('input', { placeholder: 'Contains…', style: { width: '200px' } });
