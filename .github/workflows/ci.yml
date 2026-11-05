@@ -1,4 +1,4 @@
-name: Server image
+name: Tests and image
 
 # Tests the ioHealth server on MariaDB, then builds it and publishes it to GitHub Container Registry as
 # ghcr.io/avandeputte/iohealth. Tags: `latest` and `main-<sha>` on pushes to main, the branch name (with / as -)
@@ -9,11 +9,11 @@ on:
     tags: ["v*"]
     paths:
       - "server/**"
-      - ".github/workflows/receiver-image.yml"
+      - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "server/**"
-      - ".github/workflows/receiver-image.yml"
+      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 env:
@@ -50,6 +50,8 @@ jobs:
         run: mysql -h 127.0.0.1 -uroot -proot -e "GRANT ALL ON *.* TO 'health'@'%'; FLUSH PRIVILEGES;"
       - name: Tests on MariaDB
         working-directory: server
+        env:
+          IOSUITE_TEST_DB: 127.0.0.1:3306:health:health
         run: python -m pytest -q -p no:cacheprovider tests
 
   image:

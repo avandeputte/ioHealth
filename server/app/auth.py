@@ -1,7 +1,7 @@
 """The shared ioThing accounts (iosuite-shared), as ioHealth uses them.
 
 Accounts, passwords, sessions and roles live in the Shared ioSuite database (IOSUITE_DB_*), shared with ioPix,
-ioNotes and ioContacts: one sign-in serves every app on the domain (IOTHING_COOKIE_DOMAIN). What is ioHealth's own
+ioNotes and ioContacts: one sign-in serves every app on the domain (COOKIE_DOMAIN). What is ioHealth's own
 stays here: the role an account holds in ioHealth, and its health data, which nobody else sees.
 
 Roles: a viewer sees their own data; an editor can also upload it (the iPhone app signs in as an editor, with an

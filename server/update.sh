@@ -10,7 +10,7 @@
 #   IOHEALTH_RESULT=<file>  write the outcome ("ok: ..." or "error: ...") there before the
 #     restart, so ioHealth can show it afterwards (its own child process dies in the restart)
 #
-# Keeps .env and the Python environment. A git checkout is pulled; an installed copy (no .git) is replaced from
+# Keeps config.env and the Python environment. A git checkout is pulled; an installed copy (no .git) is replaced from
 # the GitHub tarball (the server lives in server/ of the repository). The Python packages the new
 # version asks for are installed first, and the code moves only once that succeeded, so a failed package install
 # leaves the installed version running as it was. Maintenance › Updates and logs › Update now runs this script.
@@ -73,7 +73,7 @@ else
   tar xzf "$TMP/src.tgz" -C "$TMP"
   SRC="$(ls -d "$TMP"/*/ | head -1)$SUBDIR"
   STAGE="$APP/.update-stage"; rm -rf "${STAGE:?}"; mkdir -p "$STAGE"
-  for item in app static pyproject.toml run.sh update.sh setup.sh; do
+  for item in app static proxmox pyproject.toml run.sh update.sh setup.sh Dockerfile docker-compose.yml config.env.example; do
     [ -e "$SRC/$item" ] && cp -R "$SRC/$item" "$STAGE/$item"
   done
   [ -d "$STAGE/app" ] && [ -d "$STAGE/static" ] && [ -f "$STAGE/pyproject.toml" ] || { rm -rf "${STAGE:?}"; die "the downloaded tarball looks incomplete"; }
@@ -95,7 +95,7 @@ if [ -n "$GITROOT" ]; then
 else
   MOVED=""
   swap_back() { for item in $MOVED; do rm -rf "${APP:?}/${item:?}"; [ -e "$APP/$item.old" ] && mv "$APP/$item.old" "$APP/$item"; done; rm -rf "${STAGE:?}"; }
-  for item in app static pyproject.toml run.sh update.sh setup.sh; do
+  for item in app static proxmox pyproject.toml run.sh update.sh setup.sh Dockerfile docker-compose.yml config.env.example; do
     [ -e "$STAGE/$item" ] || continue
     rm -rf "${APP:?}/${item:?}.old"
     if [ -e "$APP/$item" ]; then mv "$APP/$item" "$APP/$item.old" || { swap_back; die "could not set $item aside; the previous files are back in place"; }; fi

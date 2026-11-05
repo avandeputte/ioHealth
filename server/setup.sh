@@ -1,31 +1,33 @@
 #!/bin/sh
 # ioHealth setup without Docker: asks a few questions (or takes flags), then installs the Python packages, writes
-# .env and, on Linux with systemd as root, installs and starts the `iohealth` service and waits until it answers.
+# config.env, creates the admin and, on Linux with systemd as root, installs and starts the `iohealth` service and
+# waits until it answers.
 #
 #   ./setup.sh                 ask the questions
-#   ./setup.sh --yes ...       no questions: what .env already holds, the flags below, and the defaults
+#   ./setup.sh --yes ...       no questions: what config.env already holds, the flags below, and the defaults
 #
-# Flags: --db HOST:PORT/DATABASE:USER:PASSWORD        the health data (MariaDB / MySQL)
-#        --suite-db HOST:PORT/DATABASE:USER:PASSWORD  the Shared ioSuite database: accounts and suite-wide settings
-#                                                     (default: the same server, database and user iosuite)
-#        --cookie-domain DOMAIN   --tz ZONE   --port N (47800)   --admin NAME:PASSWORD
-#        --service | --no-service   --system-deps | --no-system-deps   --python PATH
-# Secrets can stay off the command line: IOHEALTH_DB, IOHEALTH_SUITE_DB and IOHEALTH_ADMIN in the environment do what
-# --db, --suite-db and --admin do. Run it again at any time: it
-# keeps .env and only changes what you answer.
+# Flags (the same in every app of the suite):
+#   --db HOST:PORT/DB:USER:PASSWORD        the health data (IOHEALTH_DB in the environment does the same, off the command line)
+#   --suite-db HOST:PORT/DB:USER:PASSWORD  the Shared ioSuite database (IOHEALTH_SUITE_DB does the same; default: the
+#                                          same server, database and user iosuite)
+#   --admin NAME:PASS (or IOHEALTH_ADMIN) | --no-admin   --port 47800   --public-url URL   --cookie-domain DOMAIN
+#   --service | --no-service   --python PATH   --system-deps | --no-system-deps   --yes
+# ioHealth's own: --tz ZONE
+# Run it again at any time: it keeps config.env and only changes what you answer.
 set -e
 cd "$(dirname "$0")"
 APP="$(pwd)"
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-YES=0; DBS=""; SUITES=""; COOKIE=""; TZV=""; PORT=""; ADMIN=""; SERVICE=""; SYSDEPS=""; PY=""
+YES=0; DBS=""; SUITES=""; COOKIE=""; PUBURL=""; TZV=""; PORT=""; ADMIN=""; NO_ADMIN=0; SERVICE=""; SYSDEPS=""; PY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1; shift;; --db) DBS="$2"; shift 2;; --suite-db) SUITES="$2"; shift 2;; --cookie-domain) COOKIE="$2"; shift 2;;
-    --tz) TZV="$2"; shift 2;; --port) PORT="$2"; shift 2;; --admin) ADMIN="$2"; shift 2;;
+    --tz) TZV="$2"; shift 2;; --port) PORT="$2"; shift 2;; --admin) ADMIN="$2"; shift 2;; --no-admin) NO_ADMIN=1; shift;;
+    --public-url) PUBURL="$2"; shift 2;;
     --service) SERVICE=1; shift;; --no-service) SERVICE=0; shift;; --system-deps) SYSDEPS=1; shift;; --no-system-deps) SYSDEPS=0; shift;;
     --python) PY="$2"; shift 2;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) die "unknown option $1 (try --help)";;
   esac
 done
@@ -38,7 +40,8 @@ ask() { _v="$1"; _q="$2"; _d="$3"
 asksecret() { _v="$1"; _q="$2"
   if [ "$YES" = 1 ] || [ ! -t 0 ]; then eval "$_v=''"; return; fi
   printf '%s: ' "$_q"; stty -echo 2>/dev/null; read -r _a || _a=""; stty echo 2>/dev/null; printf '\n'; eval "$_v=\"\$_a\""; }
-getenv() { [ -f .env ] && sed -n "s/^$1=//p" .env | tail -n 1; true; }
+ENVF="$APP/config.env"
+getenv() { [ -f "$ENVF" ] && sed -n "s/^$1=//p" "$ENVF" | tail -n 1; true; }
 split() {  # HOST:PORT/DATABASE:USER:PASSWORD into $1_HOST, $1_PORT, $1_NAME, $1_USER, $1_PASSWORD
   _s="$2"; eval "$1_HOST=\"\${_s%%:*}\""; _r="${_s#*:}"; eval "$1_PORT=\"\${_r%%/*}\""; _r="${_r#*/}"
   eval "$1_NAME=\"\${_r%%:*}\""; _r="${_r#*:}"; eval "$1_USER=\"\${_r%%:*}\""; eval "$1_PASSWORD=\"\${_r#*:}\""; }
@@ -53,9 +56,9 @@ if [ "$SYSDEPS" != 0 ] && { ! python3 -c 'import sys, venv, ensurepip; assert sy
 fi
 PY="${PY:-python3}"
 
-# ---- the answers (what .env holds is the default)
-touch .env; chmod 600 .env
-setenv() { grep -v "^$1=" .env > .env.tmp || true; printf '%s=%s\n' "$1" "$2" >> .env.tmp; mv .env.tmp .env; chmod 600 .env; }
+# ---- the answers (what config.env holds is the default)
+(umask 077; touch "$ENVF"); chmod 600 "$ENVF"
+setenv() { grep -v "^$1=" "$ENVF" > "$ENVF.tmp" || true; printf '%s=%s\n' "$1" "$2" >> "$ENVF.tmp"; mv "$ENVF.tmp" "$ENVF"; chmod 600 "$ENVF"; }
 if [ -n "$DBS" ]; then
   split D "$DBS"
   setenv DB_HOST "$D_HOST"; setenv DB_PORT "$D_PORT"; setenv DB_NAME "$D_NAME"; setenv DB_USER "$D_USER"; setenv DB_PASSWORD "$D_PASSWORD"
@@ -76,17 +79,18 @@ elif [ "$YES" = 0 ] && [ -t 0 ]; then
   asksecret W "Its password (empty: keep the current one)"; [ -n "$W" ] || W="$(getenv IOSUITE_DB_PASSWORD)"
   setenv IOSUITE_DB_NAME "$N"; setenv IOSUITE_DB_USER "$U"; setenv IOSUITE_DB_PASSWORD "$W"
 fi
-[ -n "$COOKIE" ] || { C="$(getenv IOTHING_COOKIE_DOMAIN)"; ask COOKIE "Domain the sign-in is shared on, e.g. example.com (empty: none)" "$C"; }
-[ -n "$COOKIE" ] && setenv IOTHING_COOKIE_DOMAIN "$COOKIE"
+[ -n "$PUBURL" ] || ask PUBURL "Public address, e.g. https://health.example.com (empty: as reached)" "$(getenv PUBLIC_URL)"
+setenv PUBLIC_URL "$PUBURL"
+[ -n "$COOKIE" ] || ask COOKIE "Domain the sign-in is shared on, e.g. example.com (empty: this host only)" "$(getenv COOKIE_DOMAIN)"
+setenv COOKIE_DOMAIN "$COOKIE"
 [ -n "$TZV" ] || { T="$(getenv TZ)"; ask TZV "Time zone" "${T:-$(cat /etc/timezone 2>/dev/null || echo UTC)}"; }
 setenv TZ "$TZV"
-if [ -z "$PORT" ]; then L="$(getenv LISTEN_ADDR)"; ask PORT "Port" "${L##*:}"; [ -n "$PORT" ] || PORT=47800; fi
-setenv LISTEN_ADDR ":$PORT"
-if [ -z "$ADMIN" ] && [ "$YES" = 0 ] && [ -t 0 ]; then
+if [ -z "$PORT" ]; then ask PORT "Port" "$(getenv PORT | grep . || echo 47800)"; [ -n "$PORT" ] || PORT=47800; fi
+setenv PORT "$PORT"
+if [ -z "$ADMIN" ] && [ "$NO_ADMIN" = 0 ] && [ "$YES" = 0 ] && [ -t 0 ]; then
   ask AN "First admin, only for an empty Shared ioSuite database (empty: none, or make it in the browser)" ""
   if [ -n "$AN" ]; then asksecret AW "Its password (8 or more)"; [ -n "$AW" ] && ADMIN="$AN:$AW"; fi
 fi
-if [ -n "$ADMIN" ]; then setenv ADMIN_USER "${ADMIN%%:*}"; setenv ADMIN_PASSWORD "${ADMIN#*:}"; fi
 
 # ---- Python environment
 say "Installing the Python packages"
@@ -94,6 +98,13 @@ say "Installing the Python packages"
 .venv/bin/python -m pip install -q --disable-pip-version-check --upgrade pip
 .venv/bin/python -m pip install -q --disable-pip-version-check -e .
 chmod 755 run.sh update.sh setup.sh 2>/dev/null || true
+
+# ---- the Shared ioSuite database and the first admin (the password through the environment, never on a command line)
+say "Shared ioSuite database"
+.venv/bin/iosuite-shared --config "$APP" check || die "the Shared ioSuite database does not answer with those settings (IOSUITE_DB_* in config.env)"
+if [ -n "$ADMIN" ]; then
+  ADMIN_PASSWORD="${ADMIN#*:}" .venv/bin/iosuite-shared --config "$APP" admin "${ADMIN%%:*}" --app iohealth || die "could not create the admin account"
+fi
 
 # ---- the service
 if [ -z "$SERVICE" ]; then
@@ -112,7 +123,8 @@ Wants=network-online.target
 Type=simple
 User=$RUNAS
 WorkingDirectory=$APP
-ExecStart=$APP/run.sh
+EnvironmentFile=$ENVF
+ExecStart=$APP/.venv/bin/python -m app
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=always
 RestartSec=5
@@ -137,5 +149,5 @@ UNIT
   done
   say "ioHealth runs on port $PORT"
 else
-  say "Done. Start it with ./run.sh (port $PORT)"
+  say "Done. Start it with ./run.sh (port $PORT; settings: $ENVF)"
 fi

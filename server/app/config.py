@@ -1,36 +1,33 @@
-"""Settings, all from the environment (the container's environment or a .env file loaded by docker compose).
+"""Settings: config.env in the app folder (setup.sh writes it; config.env.example lists them all), or the environment,
+which wins (a container's).
 
 The health data lives in MariaDB/MySQL (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD); the accounts and
-suite-wide settings live in the Shared ioSuite database (IOSUITE_DB_*),
-which defaults to the same server as the health data, with database and user `iosuite`.
+suite-wide settings live in the Shared ioSuite database (IOSUITE_DB_*), which iosuite-shared puts on the same server
+as the health data unless told otherwise, with database and user `iosuite`.
 """
 import os
 from pathlib import Path
 
+from iosuite_shared import config as shared
+
 APP_DIR = Path(__file__).resolve().parent.parent
+shared.load_file(APP_DIR)  # first: iosuite_shared reads its settings (the Shared ioSuite database, COOKIE_DOMAIN) from it too
+env, env_flag, env_int = shared.env, shared.env_flag, shared.env_int
 STATIC_DIR = APP_DIR / "static"
 
-
-def env(name: str, default: str = "") -> str:
-    v = os.environ.get(name)
-    return v.strip() if v is not None and v.strip() != "" else default
-
-
 DB_HOST = env("DB_HOST", "127.0.0.1")
-DB_PORT = int(env("DB_PORT", "3306"))
+DB_PORT = env_int("DB_PORT", 3306)
 DB_USER = env("DB_USER", "health")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 DB_NAME = env("DB_NAME", "health")
 
-# The Shared ioSuite database: the same MariaDB server as the health data unless told otherwise, `iosuite` for the
-# database and its user. Set before iosuite_shared is imported, which reads them once.
-os.environ.setdefault("IOSUITE_DB_HOST", DB_HOST)
-os.environ.setdefault("IOSUITE_DB_PORT", str(DB_PORT))
-SUITE_DB_NAME = env("IOSUITE_DB_NAME", "iosuite")
-os.environ["IOSUITE_DB_NAME"] = SUITE_DB_NAME
-os.environ["IOSUITE_DB_USER"] = env("IOSUITE_DB_USER", "iosuite")
-
-LISTEN_ADDR = env("LISTEN_ADDR", ":47800")
+# where the server listens (python -m app); every app of the suite has its own default port (iosuite_shared.suite.PORTS)
+HOST = env("HOST", "0.0.0.0")
+PORT = env_int("PORT", 47800)
+# the addresses that may tell the server the visitor's address and scheme (X-Forwarded-For / -Proto): * (any), or a
+# comma-separated list such as the reverse proxy's
+FORWARDED_ALLOW_IPS = env("FORWARDED_ALLOW_IPS", "*")
+# HTTPS served directly instead of behind a reverse proxy: both files
 TLS_CERT_FILE = env("TLS_CERT_FILE")
 TLS_KEY_FILE = env("TLS_KEY_FILE")
 
@@ -41,14 +38,9 @@ MAP_TILE_ATTRIBUTION = env("MAP_TILE_ATTRIBUTION", '&copy; <a href="https://www.
 TZ = env("TZ", "UTC")
 
 # PUBLIC_URL: the address the suite's start page and other apps link to (https://health.example.com). Empty: the best
-# address ioHealth is reached at, noted by iosuite-shared (a host under IOTHING_COOKIE_DOMAIN over HTTPS first).
+# address ioHealth is reached at, noted by iosuite-shared (a host under COOKIE_DOMAIN over HTTPS first).
 PUBLIC_URL = env("PUBLIC_URL").rstrip("/")
 
 # the server log, for Maintenance › Updates and logs (empty: none). Updates: IOHEALTH_REPO, IOHEALTH_BRANCH and
 # UPDATE_CHECK are read by iosuite_shared.updates (app.auth.updater)
-LOG_FILE = Path(env("LOG_FILE", str(APP_DIR / "iohealth.log"))) if env("LOG_FILE", "x") else None
-
-
-def listen() -> tuple:
-    host, _, port = LISTEN_ADDR.rpartition(":")
-    return host or "0.0.0.0", int(port or 47800)
+LOG_FILE = Path(env("LOG_FILE", str(APP_DIR / "iohealth.log"))).expanduser() if os.environ.get("LOG_FILE", "x") else None
