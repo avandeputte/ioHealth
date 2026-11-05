@@ -19,7 +19,7 @@ log = logging.getLogger("app.updates")
 
 REPO = os.environ.get("IOHEALTH_REPO", "avandeputte/ioHealth")  # the repository and branch followed
 BRANCH = os.environ.get("IOHEALTH_BRANCH", "main")
-SUBDIR = "ioHealth/server"  # where the server lives in the repository
+SUBDIR = "server"  # where the server lives in the repository
 DAILY = 24 * 3600
 RESULT_FILE = "update-result.txt"  # next to the app; update.sh writes the outcome there before restarting
 _run_lock = threading.Lock()
@@ -59,8 +59,8 @@ def local_commit() -> str:
 
 
 def _read_commit() -> str:
-    # a checkout: the repository root is two levels up from the server folder; an image or an installed copy: COMMIT
-    for base in (config.APP_DIR, config.APP_DIR.parent.parent):
+    # a checkout: the repository root is one level up from the server folder; an image or an installed copy: COMMIT
+    for base in (config.APP_DIR, config.APP_DIR.parent):
         if (base / ".git").exists():
             try:
                 return subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(base), capture_output=True, text=True, timeout=10).stdout.strip() or "unknown"

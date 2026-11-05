@@ -21,11 +21,12 @@ why there are two parts:
 
 | path | what |
 |---|---|
-| `ioHealth/server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iosuite-shared](https://github.com/avandeputte/iosuite-shared) library (Python package `iothing-auth`), like ioPix, ioNotes and ioContacts |
-| `ioHealth/iOS/` | the iPhone app |
-| `ioHealth/Shared/` | the upload line format (`SyncProtocol.swift`) shared by the apps |
-| `ioHealth/Mac/`, `ioHealth/ExportImporter/` | legacy macOS tools (a SQLite receiver the phone no longer talks to, and an importer for the Health app's `export.zip`) |
-| `ioHealth/project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec that generates the Xcode project |
+| `server/` | Python (FastAPI) service, shipped as a Docker image, that receives the uploads, writes MariaDB and serves the web app (`static/`); accounts through the suite's [iosuite-shared](https://github.com/avandeputte/iosuite-shared) library (Python package `iothing-auth`), like ioPix, ioNotes and ioContacts |
+| `iOS/` | the iPhone app |
+| `Shared/` | the upload line format (`SyncProtocol.swift`) shared by the apps |
+| `Mac/`, `ExportImporter/` | legacy macOS tools (a SQLite receiver the phone no longer talks to, and an importer for the Health app's `export.zip`) |
+| `project.yml` | [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec that generates the Xcode project |
+| `ioHealth/server` | a link to `server/`, kept so servers installed before v2.4.1 (whose `update.sh` still looks there) can update; it can go once those have updated |
 | `.github/workflows/receiver-image.yml` | runs the server's tests and builds and publishes its image |
 
 ## 1. Run the server
@@ -36,7 +37,7 @@ The server runs in any of three ways, as ioPix, ioNotes and ioContacts do; pick 
 |---|---|---|
 | [Docker](#docker-with-compose) | the image `ghcr.io/avandeputte/iohealth` with Compose or `docker run` | the compose file, `-e` flags or a `.env` file |
 | [Proxmox VE (LXC)](#proxmox-ve-lxc) | one command on the Proxmox host creates a container and sets the server up inside it | `/opt/iohealth/app/.env` in the container |
-| [Standalone](#standalone-any-linux-or-mac) | `setup.sh` on any Linux box or Mac: a Python virtual environment and a `systemd` service | `ioHealth/server/.env` |
+| [Standalone](#standalone-any-linux-or-mac) | `setup.sh` on any Linux box or Mac: a Python virtual environment and a `systemd` service | `server/.env` |
 
 Whichever way, it needs an existing MariaDB (or MySQL) server with two databases on it: one for the health data
 (created if the user may; tables are created and migrated at every start) and the **Shared ioSuite** database
@@ -73,7 +74,7 @@ published as `ghcr.io/avandeputte/healthexport-receiver`; to upgrade, change the
 (current `main`), `2.0.0` and other release versions, and one tag per branch while it's being worked on.
 
 Save this as `docker-compose.yml`, fill in the values, and run `docker compose up -d`. Every option the server
-understands is listed (the same file is in the repo as `ioHealth/server/docker-compose.ghcr.yml`):
+understands is listed (the same file is in the repo as `server/docker-compose.ghcr.yml`):
 
 ```yaml
 services:
@@ -128,7 +129,7 @@ there). Update later with `docker compose pull && docker compose up -d`.
 <summary>Keeping the secrets in a <code>.env</code> file instead</summary>
 
 If you'd rather not have the passwords inside the compose file, replace the `environment:` block with
-`env_file: .env` and put the settings in a `.env` next to it (`ioHealth/server/.env.example` is a template):
+`env_file: .env` and put the settings in a `.env` next to it (`server/.env.example` is a template):
 
 ```yaml
 services:
@@ -173,16 +174,16 @@ docker logs -f iohealth
 ```
 
 (or `--env-file .env` instead of the `-e` flags, with the `.env` shown above.) From a clone,
-`cd ioHealth/server && docker compose up -d` builds the image locally instead of pulling it (`docker-compose.yml` has
+`cd server && docker compose up -d` builds the image locally instead of pulling it (`docker-compose.yml` has
 `build: .`).
 
 ### Proxmox VE (LXC)
 
-`ioHealth/server/proxmox/ct/iohealth.sh` and `proxmox/install/iohealth-install.sh` follow the community-scripts
+`server/proxmox/ct/iohealth.sh` and `proxmox/install/iohealth-install.sh` follow the community-scripts
 (ProxmoxVE) framework layout, the same way as the other apps. On the Proxmox host, as root,
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/ioHealth/server/proxmox/ct/iohealth.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/avandeputte/ioHealth/main/server/proxmox/ct/iohealth.sh)"
 ```
 
 creates a small Debian 13 container (2 CPUs, 1 GB, 4 GB disk by default), puts the server in `/opt/iohealth/app` and
@@ -198,7 +199,7 @@ never on a command line; the setup's output is kept in `/opt/iohealth/setup.log`
 ### Standalone: any Linux or Mac
 
 ```sh
-git clone https://github.com/avandeputte/ioHealth && cd ioHealth/ioHealth/server
+git clone https://github.com/avandeputte/ioHealth && cd ioHealth/server
 ./setup.sh          # asks for the databases, the port and the first account; installs a systemd service when run as root
 ./run.sh            # or start it in the foreground
 ./update.sh         # later: the latest code, same settings
@@ -218,7 +219,7 @@ databases of its own, `health_test`, `auth_test_iohealth` and `health_mig_test`,
 
 - **Docker:** `docker compose pull && docker compose up -d`.
 - **Proxmox LXC:** `update` inside the container (the community-scripts command), which runs `update.sh` below.
-- **Standalone:** `./update.sh` in `ioHealth/server` fetches the latest code (git, or the GitHub tarball when
+- **Standalone:** `./update.sh` in `server` fetches the latest code (git, or the GitHub tarball when
   there is no checkout), installs the packages the new version asks for and only then moves the code in, then
   restarts the service. `--check` only reports; `IOHEALTH_REF=<sha>` installs that commit.
 - **From the web app:** Settings › Server (admins), as in ioContacts and ioCalendar, shows the installed version and
@@ -278,7 +279,7 @@ works, but the app then has to be re-installed every 7 days).
 
 ```sh
 brew install xcodegen        # once
-git clone https://github.com/avandeputte/ioHealth && cd ioHealth/ioHealth
+git clone https://github.com/avandeputte/ioHealth && cd ioHealth
 xcodegen generate
 open ioHealth.xcodeproj
 ```
@@ -442,7 +443,7 @@ are JSON `{"error": "…"}` with 400, 401, 403, 404 or 413.
 |---|---|---|
 | `GET /v1/health` | | `{"ok":true,"schemaVersion":N}` |
 | `POST /v1/sessions` | `{"deviceName","systemVersion","fullResync"}` | 201 `{"sessionId":N}` |
-| `POST /v1/sessions/{id}/items` | NDJSON lines as in `ioHealth/Shared/SyncProtocol.swift`, optionally `Content-Encoding: gzip`; header `X-Batch-Seq: n` | `{"applied":k}` |
+| `POST /v1/sessions/{id}/items` | NDJSON lines as in `Shared/SyncProtocol.swift`, optionally `Content-Encoding: gzip`; header `X-Batch-Seq: n` | `{"applied":k}` |
 | `POST /v1/sessions/{id}/finish` | `{"totalSent":N}` | `{"received":rows}` |
 
 Each batch is committed in one transaction together with its sequence number, so a batch resent after a lost reply is
