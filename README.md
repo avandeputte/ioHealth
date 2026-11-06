@@ -129,6 +129,13 @@ git clone https://github.com/avandeputte/ioHealth && cd ioHealth/server
 ./update.sh         # later: the latest code, same settings
 ```
 
+Its last question, "Also install …?" (flag `--also iocalendar,ionotes`, `--also all`; `IOHEALTH_ALSO` in the environment), puts
+other apps of the suite in this same machine, beside ioHealth (`/opt/iocalendar/app` next to `/opt/iohealth/app`),
+without asking the shared questions again: the same database server (each app gets its own database: `suite`,
+`calendar`, `contacts`, `notes`, `health`, `iopix`; the user needs rights on those names too), the same Shared ioSuite
+database, sign-in domain and admin (`iosuite-shared install`, from the shared library). Each app keeps its usual port
+and updates itself as always. The Proxmox installer offers the same as a checklist, for one container with several apps.
+
 `setup.sh` takes flags instead of questions (`--db`, `--suite-db`, `--admin` or `--no-admin`, `--port`, `--public-url`,
 `--cookie-domain`, `--tz`, `--yes`, the same as every app of the suite; the passwords can come from `IOHEALTH_DB`,
 `IOHEALTH_SUITE_DB` and `IOHEALTH_ADMIN` in the environment), writes `config.env` (readable by the owner only), makes
