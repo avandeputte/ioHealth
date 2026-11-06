@@ -14,12 +14,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from iosuite_shared import users as shared
-from iosuite_shared.proxyauth import remember_peer
 
 from app import __version__, config, db, maintenance, upload, webapi
 from app.auth import APP, auth, updater
-
-remember_peer()  # before uvicorn's forwarded-header rewrite runs: proxy sign-in trusts the real peer
 
 log = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
