@@ -73,6 +73,16 @@ ask_app_settings() {
   local hosttz; hosttz="$(cat /etc/timezone 2>/dev/null || timedatectl show -p Timezone --value 2>/dev/null || echo UTC)"
   IOHEALTH_TZ="${IOHEALTH_TZ:-$(whiptail --backtitle "$bt" --inputbox "Time zone for days and weeks" 9 60 "$hosttz" 3>&1 1>&2 2>&3)}" || exit 1
   IOHEALTH_PORT="${IOHEALTH_PORT:-$(whiptail --backtitle "$bt" --inputbox "Port (the phone's uploads and the web app)" 9 60 "47800" 3>&1 1>&2 2>&3)}" || exit 1
+  if [[ -z "${IOHEALTH_DB_ADMIN+x}" ]]; then  # a MariaDB administrator: the databases and users above are created for you (empty: they exist)
+    local dau daw
+    dau=$(whiptail --backtitle "$bt" --inputbox "MariaDB administrator who may create the databases and users above, e.g. root (empty: they exist already)" 10 76 "" 3>&1 1>&2 2>&3) || exit 1
+    if [[ -n "$dau" ]]; then
+      daw=$(whiptail --backtitle "$bt" --passwordbox "Password of $dau" 9 60 3>&1 1>&2 2>&3) || exit 1
+      IOHEALTH_DB_ADMIN="$dau:$daw"
+    else
+      IOHEALTH_DB_ADMIN=""
+    fi
+  fi
   if [[ -z "${IOHEALTH_ALSO+x}" ]]; then  # the other apps of the suite in the same container (ioPix has its own script: photo mounts)
     IOHEALTH_ALSO=$(whiptail --backtitle "$bt" --checklist "Also install in this container (same database server, each app its own database; same accounts and admin; each on its usual port):" 14 78 4 \
       iosuite "ioSuite (the start page)  (8630)" OFF \
@@ -122,6 +132,7 @@ msg_info "Running the app's setup inside the container (packages, settings, tabl
 # the answers with passwords go in as a root-only file (pushed, read into setup.sh's environment, removed), never as arguments
 SECRETS="IOHEALTH_DB=$(printf '%q' "$IOHEALTH_DB")"$'\n'"IOHEALTH_SUITE_DB=$(printf '%q' "$IOHEALTH_SUITE_DB")"$'\n'
 [[ -n "${IOHEALTH_ADMIN:-}" ]] && SECRETS+="IOHEALTH_ADMIN=$(printf '%q' "$IOHEALTH_ADMIN")"$'\n'
+[[ -n "${IOHEALTH_DB_ADMIN:-}" ]] && SECRETS+="IOHEALTH_DB_ADMIN=$(printf '%q' "$IOHEALTH_DB_ADMIN")"$'\n'
 SECF="$(mktemp)"; chmod 600 "$SECF"; printf '%s' "$SECRETS" > "$SECF"
 pct push "$CTID" "$SECF" /opt/iohealth/setup.env --perms 0600 --user 0 --group 0
 rm -f "$SECF"
