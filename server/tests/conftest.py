@@ -1,41 +1,26 @@
-"""Test set-up: a scratch health database and a scratch Shared ioSuite database on a real MariaDB, emptied before every test.
-
-IOSUITE_TEST_DB=host:port:user:password names the server, as in every app of the suite (default
-127.0.0.1:3306:health:health); the databases are health_test and iosuite_test_iohealth. The tests skip without a
-server. CI gets a service."""
+"""Tests run against a test MariaDB of their own (iosuite_shared.testing: a Docker container, or the server named by
+IOSUITE_TEST_DB=host:port:user:password): two scratch databases, health_test and health_test_auth, dropped and
+recreated per session, never a live one. Without a test server the suite is skipped. The app starts once per session;
+every test begins with empty tables."""
 import os
 
-import pymysql
 import pytest
 
-_h, _p, _u, _w = (os.environ.get("IOSUITE_TEST_DB", "").split(":", 3) + ["", "", "", ""])[:4]
-os.environ.update(DB_HOST=_h or "127.0.0.1", DB_PORT=_p or "3306", DB_USER=_u or "health", DB_PASSWORD=_w or ("" if _u else "health"),
-                  DB_NAME="health_test", TZ="Europe/Brussels")
+from iosuite_shared import testing as _authtest
+
+if _authtest.server() is None:
+    pytest.skip(f"{_authtest.server.reason}: the tests need a MariaDB (Docker, or IOSUITE_TEST_DB=host:port:user:password)", allow_module_level=True)
+_s = _authtest.server()
+os.environ.update(DB_HOST=_s["host"], DB_PORT=str(_s["port"]), DB_USER=_s["user"], DB_PASSWORD=_s["password"], DB_NAME="health_test")
+_authtest.fresh_database("health_test")
+os.environ.update(_authtest.auth_env("health_test_auth"))
+os.environ.update(TZ="Europe/Brussels", LOG_FILE="")  # no server log from the tests
 os.environ.pop("ADMIN_USER", None)
 os.environ.pop("ADMIN_PASSWORD", None)
-os.environ["IOSUITE_DB_NAME"] = "iosuite_test_iohealth"
-os.environ["IOSUITE_DB_USER"] = os.environ["DB_USER"]
-os.environ["IOSUITE_DB_PASSWORD"] = os.environ["DB_PASSWORD"]
 
 from app import db  # noqa: E402
 
 HEALTH_TABLES = tuple(db.RENAME_TABLES.values())
-
-
-def _server_up() -> bool:
-    try:
-        pymysql.connect(host=os.environ["DB_HOST"], port=int(os.environ["DB_PORT"]), user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"],
-                        connect_timeout=3).close()
-        return True
-    except pymysql.MySQLError:
-        return False
-
-
-def pytest_collection_modifyitems(config, items):
-    if not _server_up():
-        skip = pytest.mark.skip(reason="no MariaDB at IOSUITE_TEST_DB")
-        for it in items:
-            it.add_marker(skip)
 
 
 @pytest.fixture(scope="session")
@@ -53,20 +38,12 @@ def _client(app):
 
 @pytest.fixture(autouse=True)
 def clean(_client):
-    from iosuite_shared import db as authdb, suite, users
     from app import webapi
     from app.auth import auth
     with db.conn() as con, con.cursor() as cur:
         for t in HEALTH_TABLES:
             cur.execute(f"DELETE FROM {t}")
-    authdb.ex("DELETE FROM ios_users")
-    authdb.ex("ALTER TABLE ios_users AUTO_INCREMENT = 1")
-    authdb.ex("DELETE FROM ios_settings")
-    authdb.ex("DELETE FROM ios_apps")
-    auth._registered = False
-    suite.invalidate()
-    users.invalidate()
-    users._attempts.clear()
+    _authtest.clean_shared_tables(auth)
     webapi.cache.clear()
     webapi.effort_cache.clear()
     webapi._all_types["at"] = 0.0

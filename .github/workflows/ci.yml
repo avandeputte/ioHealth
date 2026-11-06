@@ -27,9 +27,6 @@ jobs:
         image: mariadb:11
         env:
           MARIADB_ROOT_PASSWORD: root
-          MARIADB_USER: health
-          MARIADB_PASSWORD: health
-          MARIADB_DATABASE: health_test
         ports: ["3306:3306"]
         options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-timeout=5s --health-retries=20
     steps:
@@ -46,12 +43,11 @@ jobs:
           node --check static/app.js
           bash -n proxmox/ct/iohealth.sh proxmox/install/iohealth-install.sh
           sh -n setup.sh run.sh update.sh
-      - name: Grant the test databases
-        run: mysql -h 127.0.0.1 -uroot -proot -e "GRANT ALL ON *.* TO 'health'@'%'; FLUSH PRIVILEGES;"
       - name: Tests on MariaDB
+        # scratch databases health_test and health_test_auth on the service (iosuite_shared.testing)
         working-directory: server
         env:
-          IOSUITE_TEST_DB: 127.0.0.1:3306:health:health
+          IOSUITE_TEST_DB: 127.0.0.1:3306:root:root
         run: python -m pytest -q -p no:cacheprovider tests
 
   image:

@@ -1,7 +1,7 @@
 # ioHealth with Docker: `docker compose up -d` pulls the published image; `docker compose up -d --build` builds it
 # from this checkout instead. Works as a stack in Dockge / Portainer. Edit the "CHANGE ME" spots (the databases and
 # the admin password). The iPhone app uploads to port 47800 and the web app is on the same port; everything is
-# written to your MariaDB server, nothing to disk. For HTTPS, put it behind your reverse proxy (see README.md), or
+# written to your MariaDB server (the server log goes to data/ inside the container). For HTTPS, put it behind your reverse proxy (see README.md), or
 # set TLS_CERT_FILE / TLS_KEY_FILE and mount the files.
 #
 # The image is public on GitHub's registry: no login is needed to pull it.

@@ -1,4 +1,15 @@
-tests
+# keep the build context small: the image gets the code, the static files, pyproject.toml and the README only
+.git
+.github
+.venv
+.pytest_cache
 __pycache__
 *.pyc
+*.egg-info
+*.log
+.DS_Store
+tests
+docs
+data
+proxmox
 config.env

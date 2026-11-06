@@ -2,11 +2,11 @@
   "name": "ioHealth",
   "short_name": "ioHealth",
   "description": "Your Apple Health data: workouts, metrics, sleep and blood glucose.",
-  "start_url": "./",
+  "start_url": "./#/",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f5f6f8",
+  "background_color": "#e8445a",
   "theme_color": "#e8445a",
   "icons": [
     { "src": "static/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
