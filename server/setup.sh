@@ -12,6 +12,9 @@
 #                                          same server, database and user iosuite)
 #   --admin NAME:PASS (or IOHEALTH_ADMIN) | --no-admin   --port 47800   --public-url URL   --cookie-domain DOMAIN
 #   --service | --no-service   --python PATH   --system-deps | --no-system-deps   --yes
+#   --also APP,APP | all | none   also install other apps of the suite here (iosuite, iocalendar, iocontacts, ionotes, iopix), beside this one,
+#                                 with the same database server (each app its own database), Shared ioSuite database,
+#                                 sign-in domain and admin: those questions are asked once (IOHEALTH_ALSO does the same)
 # ioHealth's own: --tz ZONE
 # Run it again at any time: it keeps config.env and only changes what you answer.
 set -e
@@ -19,21 +22,22 @@ cd "$(dirname "$0")"
 APP="$(pwd)"
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-YES=0; DBS=""; SUITES=""; COOKIE=""; PUBURL=""; TZV=""; PORT=""; ADMIN=""; NO_ADMIN=0; SERVICE=""; SYSDEPS=""; PY=""
+YES=0; DBS=""; SUITES=""; COOKIE=""; PUBURL=""; TZV=""; PORT=""; ADMIN=""; NO_ADMIN=0; SERVICE=""; SYSDEPS=""; PY=""; ALSO=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1; shift;; --db) DBS="$2"; shift 2;; --suite-db) SUITES="$2"; shift 2;; --cookie-domain) COOKIE="$2"; shift 2;;
     --tz) TZV="$2"; shift 2;; --port) PORT="$2"; shift 2;; --admin) ADMIN="$2"; shift 2;; --no-admin) NO_ADMIN=1; shift;;
     --public-url) PUBURL="$2"; shift 2;;
     --service) SERVICE=1; shift;; --no-service) SERVICE=0; shift;; --system-deps) SYSDEPS=1; shift;; --no-system-deps) SYSDEPS=0; shift;;
-    --python) PY="$2"; shift 2;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    --python) PY="$2"; shift 2;; --also) ALSO="$2"; shift 2;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) die "unknown option $1 (try --help)";;
   esac
 done
 [ -n "$DBS" ] || DBS="${IOHEALTH_DB:-}"
 [ -n "$SUITES" ] || SUITES="${IOHEALTH_SUITE_DB:-}"
 [ -n "$ADMIN" ] || ADMIN="${IOHEALTH_ADMIN:-}"
+[ -n "$ALSO" ] || ALSO="${IOHEALTH_ALSO:-}"
 ask() { _v="$1"; _q="$2"; _d="$3"
   if [ "$YES" = 1 ] || [ ! -t 0 ]; then eval "$_v=\"\$_d\""; return; fi
   printf '%s [%s]: ' "$_q" "$_d"; read -r _a || _a=""; [ -n "$_a" ] && eval "$_v=\"\$_a\"" || eval "$_v=\"\$_d\""; }
@@ -90,6 +94,10 @@ setenv PORT "$PORT"
 if [ -z "$ADMIN" ] && [ "$NO_ADMIN" = 0 ] && [ "$YES" = 0 ] && [ -t 0 ]; then
   ask AN "First admin, only for an empty Shared ioSuite database (empty: none, or make it in the browser)" ""
   if [ -n "$AN" ]; then asksecret AW "Its password (8 or more)"; [ -n "$AW" ] && ADMIN="$AN:$AW"; fi
+fi
+if [ -z "$ALSO" ]; then
+  say "The other apps of the suite can be installed here too, beside ioHealth, with the same database server (each app gets its own database), the same Shared ioSuite database, sign-in domain and admin"
+  ask ALSO "Also install (iosuite, iocalendar, iocontacts, ionotes, iopix; comma-separated, 'all', or 'none')" "none"
 fi
 
 # ---- Python environment
@@ -151,3 +159,14 @@ UNIT
 else
   say "Done. Start it with ./run.sh (port $PORT; settings: $ENVF)"
 fi
+
+# ---- the other apps of the suite, beside this one (iosuite-shared install: the shared answers from config.env)
+case "$ALSO" in ''|none|no) ;;
+  *) say "Installing the other apps: $ALSO"
+     if [ "$SERVICE" = 1 ]; then SVC="--service"; else SVC="--no-service"; fi
+     if [ -n "$ADMIN" ]; then
+       ADMIN_PASSWORD="${ADMIN#*:}" .venv/bin/iosuite-shared --config "$APP" install "$ALSO" --admin "${ADMIN%%:*}" --from iohealth $SVC
+     else
+       .venv/bin/iosuite-shared --config "$APP" install "$ALSO" --from iohealth $SVC
+     fi || die "not every app could be installed; see the lines above (each one can be set up again with its own setup.sh)";;
+esac
