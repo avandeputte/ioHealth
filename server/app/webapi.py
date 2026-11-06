@@ -11,8 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import ORJSONResponse
 
-from app import __version__, access, analytics as an, config, db, glucose as gl, rollup
-from app.auth import updater
+from app import access, analytics as an, config, db, glucose as gl, rollup
 from app.auth import uid as uid_of
 
 router = APIRouter(default_response_class=ORJSONResponse)
@@ -171,26 +170,13 @@ def rnd(v: float, places: int) -> float:
 
 # ---- status and types
 
-@router.get("/api/status", dependencies=[access.signed_in])
-def status(request: Request):
-    u = uid_of(request)
-
-    def f():
-        out = {"schemaVersion": db.schema_version(), "version": __version__, "commit": updater.local_commit()[:7],
-               "tiles": {"url": config.MAP_TILE_URL, "attribution": config.MAP_TILE_ATTRIBUTION}}
-        r = db.one("SELECT started_at, finished_at, device, items FROM hlt_sync_log WHERE user_id = %s ORDER BY id DESC LIMIT 1", (u,))
-        if r:
-            out["lastSync"] = {"started": db.unix(r[0]), "finished": db.unix(r[1]), "device": r[2] or "", "items": r[3] or 0}
-            out["latestArrival"] = db.unix(r[1] or r[0])
-        return out
-    out = dict(cached(request, 30, f))
-    if request.state.user.get("role") == "admin":
-        # the "a newer version is out" banner, for admins, while the daily check is on (as in ioPix and ioNotes)
-        a = updater.available() if updater.auto_check_enabled() else None
-        if a:
-            a.update(canRun=updater.can_run(), docker=updater.in_docker())
-        out["update"] = a
-    return out
+def last_sync(u: int) -> dict:
+    """The account's latest upload, for GET /api/status (app.main): {lastSync: {started, finished, device, items}, latestArrival}, or {}."""
+    r = db.one("SELECT started_at, finished_at, device, items FROM hlt_sync_log WHERE user_id = %s ORDER BY id DESC LIMIT 1", (u,))
+    if not r:
+        return {}
+    return {"lastSync": {"started": db.unix(r[0]), "finished": db.unix(r[1]), "device": r[2] or "", "items": r[3] or 0},
+            "latestArrival": db.unix(r[1] or r[0])}
 
 
 _all_types = {"at": 0.0, "v": []}

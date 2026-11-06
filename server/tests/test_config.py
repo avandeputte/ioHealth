@@ -1,25 +1,23 @@
-"""The settings conventions every app of the suite shares."""
+"""The conventions every app of the suite follows (iosuite_shared.testing): the port, one version, config.env, and an
+access marker on every API route (and on the phone's /v1/ routes)."""
 from pathlib import Path
 
-from iosuite_shared import suite
+from iosuite_shared import testing
 
-from app import __version__, config
+from app import __version__, access, config
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_default_port_is_the_suites():
-    assert config.PORT == suite.PORTS["iohealth"] == 47800
-    for f in ("Dockerfile", "docker-compose.yml", "config.env.example", "run.sh"):
-        assert "47800" in (ROOT / f).read_text(), f
+def test_suite_conventions():
+    testing.check_conventions(ROOT, "iohealth", __version__, config)
 
 
-def test_one_version_everywhere():
-    assert f'version = "{__version__}"' in (ROOT / "pyproject.toml").read_text()
+def test_every_api_route_declares_who_may_call_it(app):
+    testing.check_access_declared(app, access.declared)
+    testing.check_access_declared(app, access.declared, prefix="/v1/")
 
 
-def test_settings_file_is_config_env():
-    import re
-    assert "config.env" in (ROOT / ".gitignore").read_text().split()
-    for f in ("setup.sh", "update.sh", "run.sh", "docker-compose.yml"):
-        assert not re.search(r"(?<![\w.])\.env\b", (ROOT / f).read_text()), f  # config.env, not the old .env
+def test_standard_paths():
+    assert config.APP_DIR == ROOT and config.STATIC_DIR == ROOT / "static" and config.DATA_DIR == ROOT / "data"
+    assert config.LOG_FILE is None  # LOG_FILE= in the tests' environment

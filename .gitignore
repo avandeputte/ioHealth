@@ -1,9 +1,25 @@
+# virtual environment and Python caches
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+# the settings setup.sh writes (they hold the database passwords), and what the app writes on its own (data/: the log, the update result)
+config.env
+data/
+*.log
+.update-result
+COMMIT
+.update-stage/
+# macOS
+.DS_Store
+# the iPhone app (Xcode)
 *.xcodeproj
 xcuserdata/
 DerivedData/
 .build/
-.DS_Store
+iOS/Info.plist
+# scratch exports
 *.sqlite
 *.sqlite-journal
 *.csv/
-iOS/Info.plist

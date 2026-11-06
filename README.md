@@ -68,7 +68,8 @@ for the important ones, and `config.env.example` lists them all) or in the envir
 | `FORWARDED_ALLOW_IPS` | no | the addresses allowed to pass on the visitor's address (your reverse proxy's), default `*` |
 | `AUTH_PROXY`… | no | sign-in at a reverse proxy or Cloudflare Access, see [HTTPS](#https) below |
 | `UPDATE_CHECK` | no | `0`: never ask GitHub whether a newer version exists (the daily check, see [Updating](#updating)) |
-| `LOG_FILE` | no | the server log shown at Maintenance › Updates and logs (`iohealth.log` next to the app; empty: no file) |
+| `DATA_DIR` | no | what ioHealth writes on its own (the server log, the outcome of an update); default `data/` in the app folder |
+| `LOG_FILE` | no | the server log shown at Maintenance › Updates and logs (`data/iohealth.log`; empty: no file) |
 
 ### Docker: with Compose
 
@@ -156,7 +157,7 @@ databases of its own, `health_test`, `iosuite_test_iohealth` and `health_mig_tes
 - **From the web app:** Maintenance › Updates and logs (admins), the same page in every ioThing app (it comes from
   `iosuite_shared.updates` in iosuite-shared, at `/api/server` and `/api/log`), shows the installed version and commit,
   "Check for updates" compares it with GitHub's `main`, and "Update now" runs `update.sh` (in Docker it says to pull
-  instead); below it the tail of the server log (`iohealth.log` next to the app; `LOG_FILE` moves it, empty switches it
+  instead); below it the tail of the server log (`data/iohealth.log` in the app folder; `LOG_FILE` moves it, empty switches it
   off) and Restart. A daily check (on by default; `UPDATE_CHECK=0` locks it off, the page switches it off) shows admins
   a card when a newer version exists, with Update now right on it. Only the public commit list is fetched; nothing
   about the install is sent.

@@ -27,7 +27,7 @@ auth = Auth(APP, app_label="ioHealth", version=__version__, public_url=config.PU
 
 
 class HealthUpdater(Updater):
-    """The suite's updater (the daily check, update.sh, restart, the MCP token, the server log) for a server that lives
+    """The suite's updater (the daily check, update.sh, restart, the admin token, the server log) for a server that lives
     in the `server` folder of its repository: a checkout's .git is one level up from the app folder."""
 
     def _git_root(self):
