@@ -65,7 +65,7 @@ for the important ones, and `config.env.example` lists them all) or in the envir
 | `TZ` | no | fallback time zone (e.g. `Europe/Brussels`) for days and weeks; the browser sends its own, so this only matters for API calls without `tz` |
 | `MAP_TILE_URL`, `MAP_TILE_ATTRIBUTION` | no | map tiles for routes, default OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) |
 | `HOST`, `PORT` | no | where the server listens, default `0.0.0.0` and `47800` (every app of the suite has its own port) |
-| `FORWARDED_ALLOW_IPS` | no | the addresses allowed to pass on the visitor's address (your reverse proxy's), default `*` |
+| `FORWARDED_ALLOW_IPS` | no | the addresses allowed to pass on the visitor's address and scheme (`X-Forwarded-For` / `-Proto`: your reverse proxy's), default `*`; read by the app itself (iosuite-shared), not by uvicorn |
 | `AUTH_PROXY`… | no | sign-in at a reverse proxy or Cloudflare Access, see [HTTPS](#https) below |
 | `UPDATE_CHECK` | no | `0`: never ask GitHub whether a newer version exists (the daily check, see [Updating](#updating)) |
 | `DATA_DIR` | no | what ioHealth writes on its own (the server log, the outcome of an update); default `data/` in the app folder |

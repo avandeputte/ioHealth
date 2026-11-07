@@ -56,7 +56,7 @@ def _limit_for(path: str, ctype: str) -> int:
 
 # 400 for bad input, the headers, no-store on the API, the body cap: the same in every app of the suite. The error
 # JSON carries `error` beside `detail`: the phone reads `error` (ioHealth 1.x), the shared sign-in pages read `detail`.
-auth.install(app, limit_for=_limit_for, error_key="error")
+auth.install(app, limit_for=_limit_for, error_key="error", forwarded_allow_ips=config.FORWARDED_ALLOW_IPS)  # also X-Forwarded-* from those proxies
 
 
 def _status_extra(request) -> dict:

@@ -21,7 +21,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
 from app import access, db, rollup
-from app.auth import uploader
 
 log = logging.getLogger("app.upload")
 router = APIRouter()
@@ -233,7 +232,7 @@ class Batch:
 
 def apply_batch(user_id: int, session_id: int, seq: int, body: bytes) -> dict:
     started = time.time()
-    with rollup.lock, db.tx() as con, con.cursor() as cur:
+    with rollup.locks.batch(user_id), db.tx() as con, con.cursor() as cur:
         cur.execute("SELECT last_batch_seq FROM hlt_sync_log WHERE id = %s AND user_id = %s FOR UPDATE", (session_id, user_id))
         r = cur.fetchone()
         if not r:
@@ -299,9 +298,9 @@ async def _json(request: Request) -> dict:
     return v
 
 
-@router.post("/v1/sessions", status_code=201, dependencies=[access.public])
+@router.post("/v1/sessions", status_code=201, dependencies=[access.uploader])
 async def start(request: Request):
-    uid = uploader(request)
+    uid = int(request.state.user["id"])
     h = await _json(request)
     sid = await run_in_threadpool(db.ex, "INSERT INTO hlt_sync_log (started_at, device, os, full_resync, items, user_id) VALUES (%s, %s, %s, %s, 0, %s)",
                                   (datetime.now(timezone.utc).replace(tzinfo=None), str(h.get("deviceName", ""))[:255],
@@ -311,9 +310,9 @@ async def start(request: Request):
     return {"sessionId": sid}
 
 
-@router.post("/v1/sessions/{session_id}/items", dependencies=[access.public])
+@router.post("/v1/sessions/{session_id}/items", dependencies=[access.uploader])
 async def items(session_id: int, request: Request):
-    uid = uploader(request)
+    uid = int(request.state.user["id"])
     try:
         seq = int(request.headers.get("x-batch-seq", ""))
     except ValueError:
@@ -324,9 +323,9 @@ async def items(session_id: int, request: Request):
     return await run_in_threadpool(apply_batch, uid, session_id, seq, body)
 
 
-@router.post("/v1/sessions/{session_id}/finish", dependencies=[access.public])
+@router.post("/v1/sessions/{session_id}/finish", dependencies=[access.uploader])
 async def finish(session_id: int, request: Request):
-    uid = uploader(request)
+    uid = int(request.state.user["id"])
     d = await _json(request)
 
     def work():

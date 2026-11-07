@@ -2432,7 +2432,7 @@ const MAINT_TABS = [['uploads', 'Uploads'], ['storage', 'Storage and backups'], 
 
 /** The page title and a row of tabs linking to #/<view>/<tab>.
  *  Draws at once; the tab fills the returned body when its data is in. */
-function tabbedPage(main, view, ic, title, tabs, arg, params) {
+function tabbedPage(main, view, ic, title, tabs, arg) {
   let tab = arg;
   if (!tabs.some(([k]) => k === tab)) tab = tabs[0][0];
   if (arg !== tab) history.replaceState(null, '', `#/${view}/${tab}`);
@@ -2447,7 +2447,7 @@ function tabbedPage(main, view, ic, title, tabs, arg, params) {
 
 pages.settings = async (main, arg, params) => {
   const [t, sub] = (arg || '').split('/');  // #/settings/suite/<part>
-  const { tab, body } = tabbedPage(main, 'settings', 'gear', 'Settings', SETTINGS_TABS(), t, params);
+  const { tab, body } = tabbedPage(main, 'settings', 'gear', 'Settings', SETTINGS_TABS(), t);
   const els = await ({ account: setAccount, devices: setDevices, display: setDisplay, health: setHealth, goals: setGoals,
     server: setServer, suite: () => suitePanel(sub) }[tab])(body);
   if (els) body.replaceChildren(...els.filter(Boolean));
@@ -2683,7 +2683,7 @@ function fmtBytes(n) {
 
 pages.maintenance = async (main, arg, params) => {
   if (!isAdmin()) { main.replaceChildren(h('p', { class: 'empty' }, 'Maintenance is for admins. Sign in as an admin to see it.')); return; }
-  const { tab, body } = tabbedPage(main, 'maintenance', 'wrench', 'Maintenance', MAINT_TABS, arg, params);
+  const { tab, body } = tabbedPage(main, 'maintenance', 'wrench', 'Maintenance', MAINT_TABS, arg);
   body.replaceChildren(...await ({ uploads: maintUploads, storage: maintStorage, updates: maintUpdates }[tab])());
 };
 
