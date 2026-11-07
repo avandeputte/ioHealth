@@ -8,8 +8,8 @@ from app import config
 
 def main():
     # timeout_keep_alive: the phone sends an upload's batches over one connection, with pauses between them
-    uvicorn.run("app.main:app", host=config.HOST, port=config.PORT, proxy_headers=True,
-                forwarded_allow_ips=config.FORWARDED_ALLOW_IPS, ssl_certfile=config.TLS_CERT_FILE or None,
+    # the app reads X-Forwarded-* itself (iosuite-shared, with FORWARDED_ALLOW_IPS), so uvicorn must not rewrite the peer
+    uvicorn.run("app.main:app", host=config.HOST, port=config.PORT, proxy_headers=False, ssl_certfile=config.TLS_CERT_FILE or None,
                 ssl_keyfile=config.TLS_KEY_FILE or None, timeout_keep_alive=120)
 
 

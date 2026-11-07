@@ -6,14 +6,54 @@ without trouble). Until a type is filled, its charts read samples."""
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from app import db
 
 log = logging.getLogger("app.rollup")
 
-# keeps the backfill and upload batches from recomputing the same hours at once
-lock = threading.Lock()
+class Locks:
+    """Keeps the backfill and the upload batches from recomputing the same hours at once, without one phone's upload
+    holding every other phone back: a batch locks its own account only (batches of different accounts run side by
+    side), and the backfill, which rewrites a month for every account, runs alone."""
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._users: dict = {}
+        self._batches = 0
+        self._alone = False
+
+    @contextmanager
+    def batch(self, user_id: int):
+        with self._cond:
+            while self._alone:
+                self._cond.wait()
+            self._batches += 1
+            lk = self._users.setdefault(user_id, threading.Lock())
+        try:
+            with lk:
+                yield
+        finally:
+            with self._cond:
+                self._batches -= 1
+                self._cond.notify_all()
+
+    @contextmanager
+    def alone(self):
+        with self._cond:
+            while self._alone or self._batches:
+                self._cond.wait()
+            self._alone = True
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._alone = False
+                self._cond.notify_all()
+
+
+locks = Locks()
 
 # what a sample adds to its hour: its value, or for category samples (mindful sessions, stand hours) its minutes
 HOURLY_VALUE = "CASE WHEN kind = 'category' THEN TIMESTAMPDIFF(SECOND, start_date, end_date) / 60 ELSE value END"
@@ -95,7 +135,7 @@ def backfill(ready: Ready, done=None):
         while month <= last:
             nxt = datetime(month.year + month.month // 12, month.month % 12 + 1, 1)
             try:
-                with lock, db.tx() as con, con.cursor() as cur:
+                with locks.alone(), db.tx() as con, con.cursor() as cur:
                     recompute(cur, None, typ, month, nxt)
             except Exception as e:
                 log.warning("hourly rollup: %s %s: %s (will retry on next start)", typ, month.strftime("%Y-%m"), e)

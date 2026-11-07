@@ -67,12 +67,3 @@ def me(request: Request) -> dict:
 def uid(request: Request) -> int:
     return int(me(request)["id"])
 
-
-def uploader(request: Request) -> int:
-    """The account an upload is for: an editor or admin here."""
-    u = getattr(request.state, "user", None)
-    if not u:
-        raise HTTPException(401, "missing or wrong token: use an app password from ioHealth's Settings › Apps and devices")
-    if u.get("role") not in ("editor", "admin"):
-        raise HTTPException(403, f"{u['name']} may not upload to ioHealth: an admin can make the account an editor")
-    return int(u["id"])

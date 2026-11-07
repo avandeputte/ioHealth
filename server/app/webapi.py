@@ -179,11 +179,11 @@ def last_sync(u: int) -> dict:
             "latestArrival": db.unix(r[1] or r[0])}
 
 
-_all_types = {"at": 0.0, "v": []}
+_all_types = {"at": 0.0, "v": []}  # one cache for the whole process, on purpose: the answer is the same for every account
 
 
 def all_type_names() -> list:
-    """Every type anyone has; cached a few minutes. GROUP BY, not DISTINCT: MariaDB answers it from the type index by
+    """Every type anyone has (not the account's own: the type list is the same for everyone); cached a few minutes. GROUP BY, not DISTINCT: MariaDB answers it from the type index by
     jumping from one type to the next (a loose index scan), where DISTINCT reads every sample's index entry."""
     if time.time() - _all_types["at"] > 300:
         _all_types.update(v=[r[0] for r in db.q("SELECT type FROM hlt_samples GROUP BY type")], at=time.time())

@@ -261,3 +261,54 @@ def test_suite_apps_for_the_app_switcher(client):
     assert r["app"] == "iohealth"
     other = [a for a in r["items"] if a["app"] != r["app"]]
     assert [(a["name"], a["url"], a["icon"]) for a in other] == [("ioPix", "https://photo.example.net", "https://photo.example.net/static/icons/mark.svg")]
+
+
+def test_uploads_are_declared_and_run_side_by_side(client, admin):
+    """/v1/* carries the uploader marker (a viewer gets 403 from it, nobody from the route body), and the rollup locks
+    let two accounts' batches overlap while the backfill waits for both."""
+    import threading
+    import time
+    from app import access, rollup
+    from app.main import app
+    from iosuite_shared import testing
+    roles = {p: access.declared(r) for _m, p, r in testing.api_routes(app) if p.startswith("/v1/")}
+    assert roles["/v1/sessions"] == ("uploader", True) and roles["/v1/sessions/{session_id}/items"] == ("uploader", True)
+    assert roles["/v1/health"] == ("public", False)
+    locks = rollup.Locks()
+    order = []
+    go = threading.Event()
+
+    def batch(uid):
+        with locks.batch(uid):
+            order.append(("in", uid))
+            go.wait(2)
+            order.append(("out", uid))
+
+    def alone():
+        with locks.alone():
+            order.append(("alone", None))
+    ts = [threading.Thread(target=batch, args=(1,)), threading.Thread(target=batch, args=(2,))]
+    for t in ts:
+        t.start()
+    time.sleep(0.1)
+    assert order == [("in", 1), ("in", 2)] or order == [("in", 2), ("in", 1)]  # different accounts: side by side
+    a = threading.Thread(target=alone)
+    a.start()
+    time.sleep(0.1)
+    assert ("alone", None) not in order  # the backfill waits for the batches
+    go.set()
+    for t in ts + [a]:
+        t.join(2)
+    assert order[-1] == ("alone", None)
+    # the same account: one after the other
+    order.clear()
+    go.clear()
+    ts = [threading.Thread(target=batch, args=(1,)), threading.Thread(target=batch, args=(1,))]
+    for t in ts:
+        t.start()
+    time.sleep(0.1)
+    assert order == [("in", 1)]
+    go.set()
+    for t in ts:
+        t.join(2)
+    assert order == [("in", 1), ("out", 1), ("in", 1), ("out", 1)]
