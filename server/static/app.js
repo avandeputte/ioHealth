@@ -2986,7 +2986,7 @@ async function proxyCard() {
   const labels = ['Proxy', 'Cloudflare team', 'Cloudflare AUD', 'User header', 'Proxy address', 'Someone with no account'];
   const seen = st.seen && st.seen.aud ? h('p', { class: 'small' }, `Last Cloudflare Access request: team ${st.seen.iss || '?'}, AUD ${Array.isArray(st.seen.aud) ? st.seen.aud.join(', ') : st.seen.aud}, ${st.seen.email || ''}`) : null;
   return card('Sign-in at the proxy',
-    h('p', { class: 'small muted', style: { marginTop: 0 } }, 'With Cloudflare Access (a Cloudflare Tunnel with an Access policy) or a proxy with Authelia, Authentik or oauth2-proxy in front, ioHealth takes that sign-in: the person is matched to an account by email, then by name. One setting for every io app, kept in the Shared ioSuite database (also under Settings › Suite on the start page); the AUD field takes several tags, comma-separated. A value in this server’s environment wins here.'),
+    h('p', { class: 'small muted', style: { marginTop: 0 } }, 'With Cloudflare Access (a Cloudflare Tunnel with an Access policy) or a proxy with Authelia, Authentik or oauth2-proxy in front, ioHealth takes that sign-in: the person is matched to an account by email, then by name. One setting for every io app, kept in the Shared ioSuite database (also under Settings › Suite on the start page); the AUD field takes several tags, comma-separated. Proxy settings in config.env or the environment are ignored.'),
     ...fields.map((f, i) => h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, labels[i]), f)),
     seen, fixed.size ? h('p', { class: 'small muted' }, 'Fixed in the environment: ' + [...fixed].join(', ')) : null,
     h('button', { class: 'primary', onclick: async () => {
