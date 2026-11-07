@@ -32,6 +32,7 @@ services:
       ADMIN_PASSWORD: change-me-please            # CHANGE ME (8 characters or more)
       # the address people and the other apps reach ioHealth at, and the domain the sign-in is shared on
       # PUBLIC_URL: https://health.example.com
+      # INTERNAL_URL: http://192.168.1.151:47800   # the host's LAN address and port, kept in the suite's list of apps (a container cannot tell)
       # COOKIE_DOMAIN: example.com
       # MAP_TILE_URL: https://tile.openstreetmap.org/{z}/{x}/{y}.png   # map tiles for workout routes
       # MAP_TILE_ATTRIBUTION: "&copy; OpenStreetMap contributors"
