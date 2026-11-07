@@ -2709,7 +2709,7 @@ async function maintUploads() {
         h('td', { class: 'small muted' }, x.finished ? fmtAgo(x.finished) : 'not finished'), h('td', { class: 'r num' }, fmtCompact(x.items) + (x.fullResync ? ' (full)' : ''))))))) : h('p', { class: 'muted' }, 'No sync yet.'))];
 }
 
-// ---------- accounts: sign-in, the account menu, Settings › Account / Users / Sign-in at the proxy ----------
+// ---------- accounts: sign-in, the account menu, Settings › Account (people, roles and proxy sign-in: Settings › Suite) ----------
 // The same flow as iopix (and ionotes, ioContacts): accounts live in the Shared ioSuite database, so
 // one sign-in serves every app on the domain. Health data is private: nothing shows until someone signs in.
 
@@ -2889,7 +2889,7 @@ async function setAccount() {
       u.passwordless || me.viaProxy ? null : h('button', { onclick: changePassword }, 'Change password'),
       h('button', { onclick: signOutOthers }, 'Sign out everywhere else'),
       h('button', { onclick: signOut }, 'Sign out')),
-    u.passwordless ? h('p', { class: 'small muted' }, 'This account signs in with one click and has no password; an admin can give it one under Users.')
+    u.passwordless ? h('p', { class: 'small muted' }, 'This account signs in with one click and has no password; a suite admin can give it one under Settings › Suite › People.')
       : me.viaProxy ? h('p', { class: 'small muted' }, 'Signed in through the proxy in front of ioHealth; the password is changed there.') : null)];
 }
 
@@ -2914,8 +2914,8 @@ async function setDevices() {
       : h('p', { class: 'small muted' }, 'No app passwords yet.'));
   };
   await draw();
-  const who = u.passwordless ? 'This account signs in with one click, so it cannot have app passwords; an admin can give it a password under Users.'
-    : u.role === 'viewer' ? 'This account is a viewer: it can look at its data but not upload any. An admin can make it an editor under Users.' : '';
+  const who = u.passwordless ? 'This account signs in with one click, so it cannot have app passwords; a suite admin can give it a password under Settings › Suite › People.'
+    : u.role === 'viewer' ? 'This account is a viewer: it can look at its data but not upload any. A suite admin can make it an editor under Settings › Suite › People.' : '';
   const kv = (k, v) => h('div', { class: 'toolbar', style: { margin: '0 0 2px' } }, h('span', { style: { width: '120px' } }, k), copyRow(v));
   return [
     card('iPhone app', h('p', { class: 'small', style: { marginTop: 0 } }, 'The ioHealth app on the iPhone sends the Health data here. In the app, fill in this server’s address, your user name and an app password (below), then tap Test connection and Sync now.'),

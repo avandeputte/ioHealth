@@ -5,7 +5,8 @@ ioNotes and ioContacts: one sign-in serves every app on the domain (COOKIE_DOMAI
 stays here: the role an account holds in ioHealth, and its health data, which nobody else sees.
 
 Roles: a viewer sees their own data; an editor can also upload it (the iPhone app signs in as an editor, with an
-app password); an admin can also manage the accounts and the sign-in settings.
+app password); an admin can also see Server and Maintenance; accounts, roles and the sign-in
+settings are for suite admins (Settings › Suite, the Shared ioSuite database).
 """
 import logging
 import os
@@ -27,7 +28,7 @@ auth = Auth(APP, app_label="ioHealth", version=__version__, public_url=config.PU
 
 
 class HealthUpdater(Updater):
-    """The suite's updater (the daily check, update.sh, restart, the admin token, the server log) for a server that lives
+    """The suite's updater (the daily check, update.sh, restart, the server log) for a server that lives
     in the `server` folder of its repository: a checkout's .git is one level up from the app folder."""
 
     def _git_root(self):
@@ -71,7 +72,7 @@ def uploader(request: Request) -> int:
     """The account an upload is for: an editor or admin here."""
     u = getattr(request.state, "user", None)
     if not u:
-        raise HTTPException(401, "missing or wrong token: use an app password from ioHealth's Settings › Account")
+        raise HTTPException(401, "missing or wrong token: use an app password from ioHealth's Settings › Apps and devices")
     if u.get("role") not in ("editor", "admin"):
         raise HTTPException(403, f"{u['name']} may not upload to ioHealth: an admin can make the account an editor")
     return int(u["id"])
