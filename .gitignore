@@ -10,16 +10,6 @@ data/
 *.log
 .update-result
 COMMIT
-.update-stage/
 # macOS
 .DS_Store
-# the iPhone app (Xcode)
-*.xcodeproj
-xcuserdata/
-DerivedData/
-.build/
-iOS/Info.plist
-# scratch exports
-*.sqlite
-*.sqlite-journal
-*.csv/
+.update-stage/

@@ -25,9 +25,9 @@ cd "$(dirname "$0")"
 # ("" : at the root), and the files and folders an installed copy replaces
 NAME=iohealth
 LABEL=ioHealth
-REPO_DEFAULT=avandeputte/ioHealth
-SUBDIR="server"
-ITEMS="app static proxmox pyproject.toml run.sh update.sh setup.sh Dockerfile docker-compose.yml config.env.example"
+REPO_DEFAULT=avandeputte/iohealth
+SUBDIR=""
+ITEMS="app static proxmox pyproject.toml README.md LICENSE setup.sh run.sh update.sh Dockerfile docker-compose.yml config.env.example"
 # the optional dependency groups installed here (has <group> <module to probe>), and anything else a new version needs on this machine
 groups() {
   :
