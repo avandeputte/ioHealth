@@ -71,6 +71,7 @@ def _status_extra(request) -> dict:
 
 app.include_router(auth.router())        # /api/auth/*: login, accounts, logout, me, settings, password, setup, sessions, app-passwords, proxy
 app.include_router(auth.users_router())  # /api/users: this app's admins
+app.include_router(auth.admin_router())  # /api/suite-admin (+ ui.js, the Settings › Suite panel): the whole suite (suite admins)
 app.include_router(auth.status_router(updater, extra=_status_extra))  # /api/status: public, the same shape in every app
 app.include_router(upload.router)
 app.include_router(webapi.router)

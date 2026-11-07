@@ -2423,10 +2423,11 @@ pages.day = async (main, arg) => {
 
 // ---------- settings: tabs, as in every ioThing app (#/settings/account … #/settings/server) ----------
 // Settings is what is configured, Maintenance what is run or checked. Each tab loads only what it shows. The account's
-// own tabs come first, then the admins' (users and sign-in, the server).
+// own tabs come first, then the admins' (the server) and the suite admins' (Suite: people, roles, app passwords, keys,
+// the apps and sign-in at the proxy for every io app, iosuite-shared's panel).
 
 const SETTINGS_TABS = () => [['account', 'Account'], ['display', 'Display'], ['devices', 'Apps and devices'], ['health', 'Health'], ['goals', 'Goals and alerts'],
-  ...(isAdmin() ? [['users', 'Users and sign-in'], ['server', 'Server']] : [])];
+  ...(isAdmin() ? [['server', 'Server']] : []), ...(me.isSuiteAdmin ? [['suite', 'Suite']] : [])];
 const MAINT_TABS = [['uploads', 'Uploads'], ['storage', 'Storage and backups'], ['updates', 'Updates and logs']];
 
 /** The page title and a row of tabs linking to #/<view>/<tab> (#/<view>?tab=<tab>, the older spelling, still works).
@@ -2445,9 +2446,10 @@ function tabbedPage(main, view, ic, title, tabs, arg, params) {
 }
 
 pages.settings = async (main, arg, params) => {
-  const { tab, body } = tabbedPage(main, 'settings', 'gear', 'Settings', SETTINGS_TABS(), arg, params);
+  const [t, sub] = (arg || '').split('/');  // #/settings/suite/<part>
+  const { tab, body } = tabbedPage(main, 'settings', 'gear', 'Settings', SETTINGS_TABS(), t, params);
   const els = await ({ account: setAccount, devices: setDevices, display: setDisplay, health: setHealth, goals: setGoals,
-    users: async () => [await usersCard(), await proxyCard()], server: setServer }[tab])(body);
+    server: setServer, suite: () => suitePanel(sub) }[tab])(body);
   if (els) body.replaceChildren(...els.filter(Boolean));
 };
 
@@ -2931,69 +2933,15 @@ async function setDevices() {
     card('On your phone', h('p', { class: 'small', style: { marginTop: 0 } }, 'Add the ioHealth web app to the home screen and it opens full-screen like an app: in Safari on the iPhone, tap Share, then Add to Home Screen. On Android, use Chrome’s menu and Install app. Sign in once there; the session lasts 30 days.'))];
 }
 
-// ---- Settings › Users (admins): accounts and their role in ioHealth, as in iopix
+// ---- Settings › Suite (suite admins): the people and their role in every app (here too), app passwords, keys and
+// tokens, the apps and sign-in at the proxy, for the whole suite. The same panel in every io app, served by iosuite-shared.
 
-async function usersCard() {
-  const body = h('div');
-  const draw = async () => {
-    let d;
-    try { d = await authApi('api/users'); } catch (e) { body.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
-    const name = h('input', { type: 'text', placeholder: 'User name', style: { width: '150px' } });
-    const pw = h('input', { type: 'password', placeholder: 'Password', autocomplete: 'new-password', style: { width: '150px' } });
-    const email = h('input', { type: 'email', placeholder: 'Email (optional)', autocomplete: 'off', style: { width: '200px' } });
-    const role = h('select', {}, d.roles.map(r => h('option', { value: r, selected: r === 'editor' }, r)));
-    const run = async (f, after = draw) => { try { await f(); await after(); } catch (e) { toast(e.message); } };
-    const post = (path, b) => authApi(path, { method: 'POST', body: b });
-    body.replaceChildren(h('table', { class: 'grid', style: { width: '100%' } },
-      h('thead', {}, h('tr', {}, ['Account', 'Email', 'Role', 'Password', 'Sign-in list', 'Last sign-in', ''].map(c => h('th', {}, c)))),
-      h('tbody', {}, d.users.map(u => h('tr', {},
-        h('td', {}, h('span', { class: 'toolbar', style: { margin: 0, gap: '6px' } }, avatar(u), u.name, u.id === me.user.id ? h('span', { class: 'muted small' }, '(you)') : null, u.suiteAdmin ? h('span', { class: 'muted small' }, 'suite admin') : null)),
-        h('td', { class: 'small' }, u.email || h('span', { class: 'muted' }, 'none')),
-        h('td', {}, h('select', { onchange: e => run(() => post(`api/users/${u.id}`, { role: e.target.value })) }, d.roles.map(r => h('option', { value: r, selected: r === u.role }, r)))),
-        h('td', { class: 'small' }, u.passwordless ? h('span', { class: 'muted' }, 'none (one click)') : 'set', ' ',
-          h('button', { class: 'small-btn', onclick: async () => {
-            const inp = h('input', { type: 'password', placeholder: '8 characters or more', autocomplete: 'new-password' });
-            if (await dialog(`New password for ${u.name}`, inp, [{ label: 'Cancel', value: null }, { label: 'Set', primary: true, value: true }]) && inp.value) run(() => post(`api/users/${u.id}`, { password: inp.value }));
-          } }, 'Set')),
-        h('td', { style: { textAlign: 'center' } }, h('input', { type: 'checkbox', checked: u.listed !== false, title: 'Offered on the sign-in screen',
-          onchange: e => run(() => post(`api/users/${u.id}`, { listed: e.target.checked })) })),
-        h('td', { class: 'small muted' }, u.last_login ? fmtDate(u.last_login) : 'never'),
-        h('td', { style: { textAlign: 'right' } }, u.id !== me.user.id ? h('button', { class: 'small-btn', onclick: async () => {
-          if (!await dialog('Delete account', h('p', {}, `Delete ${u.name}? Their health data stays in the database until an admin removes it.`), [{ label: 'Cancel', value: null }, { label: 'Delete', danger: true, value: true }])) return;
-          run(() => post(`api/users/${u.id}`, { delete: true }));
-        } }, 'Delete') : null))))),
-      h('div', { class: 'toolbar', style: { marginTop: '10px' } }, name, email, pw, role, h('button', { class: 'primary', onclick: () => run(async () => {
-        await post('api/users', { name: name.value.trim(), email: email.value.trim(), password: pw.value, role: role.value }); toast(`Added ${name.value.trim()}`);
-      }) }, '+ Add account')));
-  };
-  await draw();
-  return card('Users', h('p', { class: 'small muted', style: { marginTop: 0 } }, 'The ioThing suite’s shared accounts (the same as in ioPix, ioNotes and ioContacts), with each one’s role in ioHealth: a viewer sees their own data, an editor can also upload it from the iPhone app, an admin can also manage accounts. Every account sees only its own health data.'), body);
-}
-
-// ---- Settings › Sign-in at the proxy (admins): Cloudflare Access or another proxy in front
-
-async function proxyCard() {
-  let st;
-  try { st = await authApi('api/auth/proxy'); } catch (e) { return card('Sign-in at the proxy', h('p', { class: 'error' }, e.message)); }
-  const v = st.values, fixed = new Set(st.fromEnv || []);
-  const field = (k, ph) => h('input', { type: 'text', value: v[k] || '', placeholder: ph, disabled: fixed.has(k), 'data-k': k, style: { width: '300px', maxWidth: '100%' } });
-  const sel = (k, opts) => h('select', { 'data-k': k, disabled: fixed.has(k) }, opts.map(([val, l]) => h('option', { value: val, selected: (v[k] || '') === val }, l)));
-  const fields = [sel('AUTH_PROXY', [['off', 'Off'], ['cloudflare', 'Cloudflare Access'], ['haproxy', 'HAProxy'], ['nginx', 'nginx'], ['caddy', 'Caddy'], ['traefik', 'Traefik'], ['header', 'Another proxy']]),
-    field('CF_ACCESS_TEAM', 'myteam.cloudflareaccess.com'), field('CF_ACCESS_AUD', 'the Access application’s AUD tag'),
-    field('AUTH_PROXY_HEADER', 'header(s) with the user (other proxies)'), field('AUTH_PROXY_TRUSTED', '127.0.0.1, ::1 (the proxy’s address)'),
-    sel('AUTH_PROXY_CREATE', [['', 'show the sign-in screen'], ['deny', 'refuse them'], ['viewer', 'make them a viewer account'], ['editor', 'make them an editor account']])];
-  if (!v.AUTH_PROXY) fields[0].value = 'off';
-  const labels = ['Proxy', 'Cloudflare team', 'Cloudflare AUD', 'User header', 'Proxy address', 'Someone with no account'];
-  const seen = st.seen && st.seen.aud ? h('p', { class: 'small' }, `Last Cloudflare Access request: team ${st.seen.iss || '?'}, AUD ${Array.isArray(st.seen.aud) ? st.seen.aud.join(', ') : st.seen.aud}, ${st.seen.email || ''}`) : null;
-  return card('Sign-in at the proxy',
-    h('p', { class: 'small muted', style: { marginTop: 0 } }, 'With Cloudflare Access (a Cloudflare Tunnel with an Access policy) or a proxy with Authelia, Authentik or oauth2-proxy in front, ioHealth takes that sign-in: the person is matched to an account by email, then by name. One setting for every io app, kept in the Shared ioSuite database (also under Settings › Suite on the start page); the AUD field takes several tags, comma-separated. Proxy settings in config.env or the environment are ignored.'),
-    ...fields.map((f, i) => h('div', { class: 'toolbar' }, h('span', { style: { width: '160px' } }, labels[i]), f)),
-    seen, fixed.size ? h('p', { class: 'small muted' }, 'Fixed in the environment: ' + [...fixed].join(', ')) : null,
-    h('button', { class: 'primary', onclick: async () => {
-      const body = {};
-      for (const f of fields) if (!f.disabled) body[f.dataset.k] = f.value;
-      try { await authApi('api/auth/proxy', { method: 'POST', body }); toast('Saved'); } catch (e) { toast(e.message); }
-    } }, 'Save'));
+async function suitePanel(sub) {
+  const el = h('div');
+  let ui;
+  try { ui = await import(new URL('api/suite-admin/ui.js', document.baseURI).href); } catch (e) { return [h('p', { class: 'error' }, `The Suite panel did not load: ${e.message}`)]; }
+  await ui.mount(el, { sub, toast, onSub: (x) => history.replaceState(null, '', `#/settings/suite/${x}`) });
+  return [el];
 }
 
 // ---------- start ----------
