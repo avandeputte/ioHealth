@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "iohealth"
-version = "2.13.0"
+version = "2.14.0"
 description = "Apple Health data from the iPhone in your own MariaDB, with a fitness web app, over the ioThing suite's shared accounts"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -17,7 +17,7 @@ dependencies = [
   "pymysql<2",
   "pyjwt[crypto]<3",   # Cloudflare Access tokens (proxy sign-in)
   "tzdata",            # the browser's time zone, on an image without zoneinfo
-  "iosuite-shared @ git+https://github.com/avandeputte/iosuite-shared.git@236b3cc5d06d9408fd2afd6d2a6caee1e7562812",   # iosuite-shared 0.12.0, the suite's shared library: accounts, sessions, the Shared ioSuite database (pinned: bump to pick up a new one)
+  "iosuite-shared @ git+https://github.com/avandeputte/iosuite-shared.git@5da5840abe193fe77b4c5440777403e515d07115",   # iosuite-shared 0.13.0, the suite's shared library: accounts, sessions, the Shared ioSuite database (pinned: bump to pick up a new one)
 ]
 
 [project.optional-dependencies]
