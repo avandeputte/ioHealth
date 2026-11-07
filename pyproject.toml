@@ -8,7 +8,7 @@ name = "iohealth"
 version = "2.20.0"
 description = "Apple Health data from the iPhone in your own MariaDB, with a fitness web app, over the ioThing suite's shared accounts"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 # upper bounds: the next major version of each package as installed and tested (the same as iopix and ionotes)
 dependencies = [
   "fastapi<1",
