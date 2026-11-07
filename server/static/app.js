@@ -196,7 +196,7 @@ const settings = (() => {
   const defaults = { units: 'metric', maxHr: '', theme: 'auto', glucoseUnit: '', glucoseLow: '70', glucoseHigh: '180', hiddenSections: [], hiddenTypes: [] };
   try { return Object.assign(defaults, JSON.parse(localStorage.getItem('iohealth.settings') || '{}')); } catch { return defaults; }
 })();
-// Settings live in the database (web_settings), shared by every browser; the copy in localStorage only makes the
+// Settings live in the database (hlt_user_settings), shared by every browser; the copy in localStorage only makes the
 // theme right before the server answers.
 let settingsTimer;
 function saveSettings() {
@@ -2430,10 +2430,10 @@ const SETTINGS_TABS = () => [['account', 'Account'], ['display', 'Display'], ['d
   ...(isAdmin() ? [['server', 'Server']] : []), ...(me.isSuiteAdmin ? [['suite', 'Suite']] : [])];
 const MAINT_TABS = [['uploads', 'Uploads'], ['storage', 'Storage and backups'], ['updates', 'Updates and logs']];
 
-/** The page title and a row of tabs linking to #/<view>/<tab> (#/<view>?tab=<tab>, the older spelling, still works).
+/** The page title and a row of tabs linking to #/<view>/<tab>.
  *  Draws at once; the tab fills the returned body when its data is in. */
 function tabbedPage(main, view, ic, title, tabs, arg, params) {
-  let tab = arg || params?.get('tab');
+  let tab = arg;
   if (!tabs.some(([k]) => k === tab)) tab = tabs[0][0];
   if (arg !== tab) history.replaceState(null, '', `#/${view}/${tab}`);
   const body = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));

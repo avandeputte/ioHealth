@@ -216,7 +216,7 @@ class Batch:
         c.execute("DELETE FROM hlt_workout_activities WHERE workout_uuid = %s AND user_id = %s", (w["uuid"], uid))
         stats = [(w["uuid"], s.get("type"), s.get("unit"), s.get("average"), s.get("minimum"), s.get("maximum"), s.get("sum"), s.get("mostRecent"))
                  for s in w.get("statistics") or []]
-        # statistics the workout no longer has go; the others are upserted below, keeping their inserted_at
+        # statistics the workout no longer has go; the others are upserted below, keeping their created_at
         keep = [s[1] for s in stats]
         c.execute("DELETE FROM hlt_workout_statistics WHERE workout_uuid = %s AND user_id = %s"
                   + (f" AND type NOT IN ({', '.join(['%s'] * len(keep))})" if keep else ""), [w["uuid"], uid] + keep)

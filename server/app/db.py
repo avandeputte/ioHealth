@@ -185,90 +185,72 @@ def storage_name(identifier: str) -> str:
     return name.lower()
 
 
-def _rename_types(con):
-    """4: types stored with full HealthKit identifiers become short names, one type per transaction."""
-    for table in ("samples", "workout_statistics", "deleted_objects"):
-        with con.cursor() as cur:
-            cur.execute(f"SELECT DISTINCT type FROM {table} WHERE type LIKE BINARY 'HK%%'")
-            types = [r[0] for r in cur.fetchall()]
-        for t in types:
-            with con.cursor() as cur:
-                cur.execute("BEGIN")
-                n = cur.execute(f"UPDATE {table} SET type = %s WHERE type = %s", (storage_name(t), t))
-                cur.execute("COMMIT")
-            log.info("renamed %s.type %s -> %s (%d rows)", table, t, storage_name(t), n)
-
-
-def _timestamp_columns(*tables) -> list:
-    """inserted_at / updated_at, added without a default first and given one after, so existing rows stay NULL
-    without a row-by-row UPDATE (on a Galera cluster that is one huge replicated transaction)."""
-    out = []
-    for t in tables:
-        out += [f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS inserted_at DATETIME(3) NULL DEFAULT NULL, "
-                "ADD COLUMN IF NOT EXISTS updated_at DATETIME(3) NULL DEFAULT NULL",
-                f"ALTER TABLE {t} MODIFY COLUMN inserted_at DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3), "
-                "MODIFY COLUMN updated_at DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"]
-    return out
-
-
-# Tables whose rows belong to one account. The ones keyed by UUID get the column only (instant, no rewrite): a UUID
-# is unique across phones. The ones keyed by a date or a name get it in their primary key; they are small.
-USER_TABLES = ("samples", "workouts", "workout_statistics", "workout_events", "workout_activities", "workout_route_points",
-               "heartbeats", "deleted_objects", "sync_log")
-USER_KEYED = {"activity_summaries": "date", "characteristics": "`key`", "web_settings": "`key`", "sample_hourly": "type, hour, source_name"}
-
-
-def _multi_user():
-    """9: every row belongs to an account (user_id, the account's id in the Shared ioSuite database). The column is added
-    without touching a row (ALGORITHM=INSTANT; it fails rather than rewrite a big table)."""
-    def run(con):
-        with con.cursor() as cur:
-            for t in USER_TABLES:
-                cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS user_id INT NOT NULL DEFAULT 0, ALGORITHM=INSTANT")
-            for t, key in USER_KEYED.items():
-                cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS user_id INT NOT NULL DEFAULT 0, "
-                            f"DROP PRIMARY KEY, ADD PRIMARY KEY (user_id, {key})")
-            # the background rollup recomputes a type's hours for every account at once
-            cur.execute("ALTER TABLE sample_hourly ADD INDEX IF NOT EXISTS idx_hourly_type_hour (type, hour)")
-            cur.execute("ALTER TABLE sync_log ADD INDEX IF NOT EXISTS idx_sync_log_user (user_id, id)")
-    return run
-
-
-# 11: the suite naming convention: every table, view and index takes ioHealth's prefix (hlt_), so the apps can share one
-# database; inserted_at -> created_at, `key` -> name, sync_log.`system` -> os, web_settings -> hlt_user_settings (they
-# are per account). Renames only: instant on MariaDB however big the table, every row kept.
-RENAME_TABLES = {t: "hlt_" + t for t in ("characteristics", "samples", "workouts", "workout_statistics", "workout_events", "workout_activities",
-                                         "workout_route_points", "heartbeats", "activity_summaries", "deleted_objects", "sync_log",
-                                         "sample_hourly", "sample_hourly_ready")}
-RENAME_TABLES["web_settings"] = "hlt_user_settings"
-_STAMPED = ("hlt_samples", "hlt_workouts", "hlt_workout_statistics", "hlt_workout_events", "hlt_workout_activities", "hlt_workout_route_points",
-            "hlt_heartbeats", "hlt_activity_summaries", "hlt_characteristics", "hlt_deleted_objects")
-RENAME_COLUMNS = {
-    **{t: {"inserted_at": "created_at"} for t in _STAMPED},
-    "hlt_characteristics": {"inserted_at": "created_at", "key": "name"},
-    "hlt_user_settings": {"key": "name"},
-    "hlt_sync_log": {"system": "os"},
-}
-RENAME_INDEXES = {
-    "hlt_samples": {"idx_samples_type_start": "idx_hlt_samples_type_start", "idx_samples_inserted": "idx_hlt_samples_created"},
-    "hlt_workouts": {"idx_workouts_start": "idx_hlt_workouts_start"},
-    "hlt_workout_events": {"idx_events_workout": "idx_hlt_workout_events_workout"},
-    "hlt_workout_activities": {"idx_activities_workout": "idx_hlt_workout_activities_workout"},
-    "hlt_workout_route_points": {"idx_route_points_workout": "idx_hlt_workout_route_points_workout"},
-    "hlt_sample_hourly": {"idx_hourly_type_hour": "idx_hlt_sample_hourly_type_hour"},
-    "hlt_sync_log": {"idx_sync_log_user": "idx_hlt_sync_log_user"},
-}
-
-
-def _naming_convention(con):
-    from iosuite_shared import schema
-    with con.cursor() as cur:
-        cur.execute("DROP VIEW IF EXISTS sample_delay_by_type, sample_delay_by_day")  # they name the old table and column
-        done = schema.rename(cur, RENAME_TABLES, RENAME_COLUMNS, RENAME_INDEXES)
-        cur.execute(DELAY_BY_TYPE)
-        cur.execute(DELAY_BY_DAY)
-    if done:
-        log.info("renamed to the suite naming convention: %d tables, columns and indexes", len(done))
+# Every table is hlt_<name> (the suite's naming convention: the apps can share one database). Rows belong to an
+# account (user_id: its id in the Shared ioSuite database); created_at / updated_at say when a row arrived and last
+# changed. Types are stored as short names (storage_name).
+_STAMPS = ("created_at DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3), "
+           "updated_at DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3), "
+           "user_id INT NOT NULL DEFAULT 0")
+SCHEMA = [
+    f"""CREATE TABLE IF NOT EXISTS hlt_characteristics (
+        name VARCHAR(64) NOT NULL, value TEXT, {_STAMPS},
+        PRIMARY KEY (user_id, name))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_samples (
+        uuid CHAR(36) PRIMARY KEY, type VARCHAR(128) NOT NULL, kind VARCHAR(32) NOT NULL,
+        start_date DATETIME(3) NOT NULL, end_date DATETIME(3) NOT NULL,
+        value DOUBLE, unit VARCHAR(64), text MEDIUMTEXT, count INT, source_name VARCHAR(255), metadata_json JSON, {_STAMPS},
+        INDEX idx_hlt_samples_type_start (type, start_date),
+        INDEX idx_hlt_samples_created (created_at, type, end_date))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_workouts (
+        uuid CHAR(36) PRIMARY KEY, activity_type VARCHAR(64), activity_type_raw INT,
+        start_date DATETIME(3), end_date DATETIME(3), duration_s DOUBLE, source_name VARCHAR(255), metadata_json JSON, {_STAMPS},
+        INDEX idx_hlt_workouts_start (start_date))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_workout_statistics (
+        workout_uuid CHAR(36) NOT NULL, type VARCHAR(128) NOT NULL, unit VARCHAR(64),
+        average DOUBLE, minimum DOUBLE, maximum DOUBLE, sum DOUBLE, most_recent DOUBLE, {_STAMPS},
+        PRIMARY KEY (workout_uuid, type))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_workout_events (
+        workout_uuid CHAR(36), type VARCHAR(64), start_date DATETIME(3), end_date DATETIME(3), metadata_json JSON, {_STAMPS},
+        INDEX idx_hlt_workout_events_workout (workout_uuid))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_workout_activities (
+        workout_uuid CHAR(36), activity_type VARCHAR(64), start_date DATETIME(3), end_date DATETIME(3), metadata_json JSON, {_STAMPS},
+        INDEX idx_hlt_workout_activities_workout (workout_uuid))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_workout_route_points (
+        workout_uuid CHAR(36), route_uuid CHAR(36) NOT NULL, time DATETIME(3) NOT NULL,
+        latitude DOUBLE, longitude DOUBLE, altitude DOUBLE, horizontal_accuracy DOUBLE, vertical_accuracy DOUBLE, speed DOUBLE, course DOUBLE,
+        {_STAMPS},
+        PRIMARY KEY (route_uuid, time),
+        INDEX idx_hlt_workout_route_points_workout (workout_uuid))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_heartbeats (
+        series_uuid CHAR(36) NOT NULL, time_since_start_s DOUBLE NOT NULL, preceded_by_gap BOOL, {_STAMPS},
+        PRIMARY KEY (series_uuid, time_since_start_s))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_activity_summaries (
+        date DATE NOT NULL,
+        active_energy_kcal DOUBLE, active_energy_goal_kcal DOUBLE, exercise_min DOUBLE, exercise_goal_min DOUBLE,
+        stand_hours DOUBLE, stand_hours_goal DOUBLE, move_min DOUBLE, move_goal_min DOUBLE, {_STAMPS},
+        PRIMARY KEY (user_id, date))""",
+    f"""CREATE TABLE IF NOT EXISTS hlt_deleted_objects (
+        uuid CHAR(36) PRIMARY KEY, type VARCHAR(128), deleted_at DATETIME(3), {_STAMPS})""",
+    # one row per sync; last_batch_seq: the last numbered upload batch applied makes a retried batch a no-op;
+    # applied: what it applied (its reply, without counting the account's rows)
+    """CREATE TABLE IF NOT EXISTS hlt_sync_log (
+        id INT AUTO_INCREMENT PRIMARY KEY, started_at DATETIME(3), finished_at DATETIME(3),
+        device VARCHAR(255), os VARCHAR(32), full_resync BOOL, items INT,
+        last_batch_seq INT NOT NULL DEFAULT 0, user_id INT NOT NULL DEFAULT 0, applied INT NOT NULL DEFAULT 0,
+        INDEX idx_hlt_sync_log_user (user_id, id))""",
+    # the web app's hourly rollup (the background rollup recomputes a type's hours for every account at once) and settings
+    """CREATE TABLE IF NOT EXISTS hlt_sample_hourly (
+        type VARCHAR(128) NOT NULL, hour DATETIME NOT NULL, source_name VARCHAR(255) NOT NULL DEFAULT '',
+        sum DOUBLE, n INT NOT NULL, min DOUBLE, max DOUBLE, user_id INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, type, hour, source_name),
+        INDEX idx_hlt_sample_hourly_type_hour (type, hour))""",
+    "CREATE TABLE IF NOT EXISTS hlt_sample_hourly_ready (type VARCHAR(128) PRIMARY KEY)",
+    """CREATE TABLE IF NOT EXISTS hlt_user_settings (
+        name VARCHAR(64) NOT NULL, value MEDIUMTEXT NOT NULL,
+        updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+        user_id INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, name))""",
+]
 
 
 # how long samples take to reach the database, per account and type, and per day of arrival (UTC)
@@ -287,108 +269,6 @@ DELAY_BY_DAY = """CREATE OR REPLACE VIEW hlt_sample_delay_by_day AS
     FROM hlt_samples WHERE created_at IS NOT NULL GROUP BY user_id, DATE(created_at), type"""
 
 
-def migrations() -> list:
-    """Applied in order, once each, and recorded in hlt_schema_version. Append; never edit one that has shipped (the
-    first eight are the Go receiver's, unchanged; they make the tables under their old names, which 11 renames)."""
-    return [
-        # 1: the Mac app's SQLite tables, minus ECGs
-        ["CREATE TABLE IF NOT EXISTS characteristics (`key` VARCHAR(64) PRIMARY KEY, value TEXT)",
-         """CREATE TABLE IF NOT EXISTS samples (
-            uuid CHAR(36) PRIMARY KEY, type VARCHAR(128) NOT NULL, kind VARCHAR(32) NOT NULL,
-            start_date DATETIME(3) NOT NULL, end_date DATETIME(3) NOT NULL,
-            value DOUBLE, unit VARCHAR(64), text MEDIUMTEXT, count INT,
-            source_name VARCHAR(255), source_bundle VARCHAR(255), source_version VARCHAR(64), source_product VARCHAR(64), source_os VARCHAR(32),
-            device_json JSON, metadata_json JSON,
-            INDEX idx_samples_type_start (type, start_date))""",
-         """CREATE TABLE IF NOT EXISTS workouts (
-            uuid CHAR(36) PRIMARY KEY, activity_type VARCHAR(64), activity_type_raw INT,
-            start_date DATETIME(3), end_date DATETIME(3), duration_s DOUBLE,
-            source_name VARCHAR(255), source_bundle VARCHAR(255), source_version VARCHAR(64), source_product VARCHAR(64), source_os VARCHAR(32),
-            device_json JSON, metadata_json JSON,
-            INDEX idx_workouts_start (start_date))""",
-         """CREATE TABLE IF NOT EXISTS workout_statistics (
-            workout_uuid CHAR(36), type VARCHAR(128), unit VARCHAR(64),
-            average DOUBLE, minimum DOUBLE, maximum DOUBLE, sum DOUBLE, most_recent DOUBLE,
-            PRIMARY KEY (workout_uuid, type))""",
-         """CREATE TABLE IF NOT EXISTS workout_events (
-            workout_uuid CHAR(36), type VARCHAR(64), start_date DATETIME(3), end_date DATETIME(3), metadata_json JSON,
-            INDEX idx_events_workout (workout_uuid))""",
-         """CREATE TABLE IF NOT EXISTS workout_activities (
-            workout_uuid CHAR(36), activity_type VARCHAR(64), start_date DATETIME(3), end_date DATETIME(3), metadata_json JSON,
-            INDEX idx_activities_workout (workout_uuid))""",
-         """CREATE TABLE IF NOT EXISTS workout_route_points (
-            workout_uuid CHAR(36), route_uuid CHAR(36), time DATETIME(3),
-            latitude DOUBLE, longitude DOUBLE, altitude DOUBLE, horizontal_accuracy DOUBLE, vertical_accuracy DOUBLE, speed DOUBLE, course DOUBLE,
-            PRIMARY KEY (route_uuid, time),
-            INDEX idx_route_points_workout (workout_uuid))""",
-         """CREATE TABLE IF NOT EXISTS heartbeats (
-            series_uuid CHAR(36), time_since_start_s DOUBLE, preceded_by_gap BOOL,
-            PRIMARY KEY (series_uuid, time_since_start_s))""",
-         """CREATE TABLE IF NOT EXISTS activity_summaries (
-            date DATE PRIMARY KEY,
-            active_energy_kcal DOUBLE, active_energy_goal_kcal DOUBLE, exercise_min DOUBLE, exercise_goal_min DOUBLE,
-            stand_hours DOUBLE, stand_hours_goal DOUBLE, move_min DOUBLE, move_goal_min DOUBLE)""",
-         "CREATE TABLE IF NOT EXISTS deleted_objects (uuid CHAR(36) PRIMARY KEY, type VARCHAR(128), deleted_at DATETIME(3))",
-         "CREATE TABLE IF NOT EXISTS sync_log (id INT AUTO_INCREMENT PRIMARY KEY, started_at DATETIME(3), finished_at DATETIME(3), "
-         "device VARCHAR(255), `system` VARCHAR(32), full_resync BOOL, items INT)"],
-        # 2: numbered upload batches; the last one applied makes a retried batch a no-op
-        ["ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS last_batch_seq INT NOT NULL DEFAULT 0"],
-        # 3: only the source's name is sent now
-        ["ALTER TABLE samples DROP COLUMN IF EXISTS source_bundle, DROP COLUMN IF EXISTS source_version, "
-         "DROP COLUMN IF EXISTS source_product, DROP COLUMN IF EXISTS source_os, DROP COLUMN IF EXISTS device_json",
-         "ALTER TABLE workouts DROP COLUMN IF EXISTS source_bundle, DROP COLUMN IF EXISTS source_version, "
-         "DROP COLUMN IF EXISTS source_product, DROP COLUMN IF EXISTS source_os, DROP COLUMN IF EXISTS device_json"],
-        # 4: short type names
-        [_rename_types],
-        # 5: when each row arrived and when it last changed
-        _timestamp_columns("samples", "workouts", "workout_statistics", "workout_events", "workout_activities", "workout_route_points",
-                           "heartbeats", "activity_summaries", "characteristics", "deleted_objects"),
-        # 6: how long samples take to reach the database
-        ["""CREATE OR REPLACE VIEW sample_delay_by_type AS
-            SELECT type, COUNT(*) AS samples,
-                ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS min_delay_min,
-                ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS avg_delay_min,
-                ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS max_delay_min,
-                MAX(end_date) AS latest_sample, MAX(inserted_at) AS latest_arrival
-            FROM samples WHERE inserted_at IS NOT NULL GROUP BY type""",
-         """CREATE OR REPLACE VIEW sample_delay_by_day AS
-            SELECT DATE(inserted_at) AS day, type, COUNT(*) AS samples,
-                ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS min_delay_min,
-                ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS avg_delay_min,
-                ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS max_delay_min
-            FROM samples WHERE inserted_at IS NOT NULL GROUP BY DATE(inserted_at), type"""],
-        # 7: a covering index for the delay views
-        ["ALTER TABLE samples ADD INDEX IF NOT EXISTS idx_samples_inserted (inserted_at, type, end_date)"],
-        # 8: the web app's hourly rollup and settings
-        ["""CREATE TABLE IF NOT EXISTS sample_hourly (
-            type VARCHAR(128) NOT NULL, hour DATETIME NOT NULL, source_name VARCHAR(255) NOT NULL DEFAULT '',
-            sum DOUBLE, n INT NOT NULL, min DOUBLE, max DOUBLE,
-            PRIMARY KEY (type, hour, source_name))""",
-         "CREATE TABLE IF NOT EXISTS sample_hourly_ready (type VARCHAR(128) PRIMARY KEY)",
-         "CREATE TABLE IF NOT EXISTS web_settings (`key` VARCHAR(64) PRIMARY KEY, value MEDIUMTEXT NOT NULL, "
-         "updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3))"],
-        # 9: every row belongs to an account
-        [_multi_user()],
-        # 10: what each sync applied (its reply, without counting the account's rows), and the delay views per account
-        ["ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS applied INT NOT NULL DEFAULT 0",
-         """CREATE OR REPLACE VIEW sample_delay_by_type AS
-            SELECT user_id, type, COUNT(*) AS samples,
-                ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS min_delay_min,
-                ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS avg_delay_min,
-                ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS max_delay_min,
-                MAX(end_date) AS latest_sample, MAX(inserted_at) AS latest_arrival
-            FROM samples WHERE inserted_at IS NOT NULL GROUP BY user_id, type""",
-         """CREATE OR REPLACE VIEW sample_delay_by_day AS
-            SELECT user_id, DATE(inserted_at) AS day, type, COUNT(*) AS samples,
-                ROUND(MIN(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS min_delay_min,
-                ROUND(AVG(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS avg_delay_min,
-                ROUND(MAX(TIMESTAMPDIFF(SECOND, end_date, inserted_at)) / 60, 1) AS max_delay_min
-            FROM samples WHERE inserted_at IS NOT NULL GROUP BY user_id, DATE(inserted_at), type"""],
-        # 11: the suite naming convention (hlt_ tables)
-        [_naming_convention],
-    ]
-
-
 SCHEMA_VERSION = 11
 _lock = threading.Lock()
 
@@ -405,31 +285,12 @@ def pending() -> bool:
 
 
 def migrate():
-    """Bring the schema up to date."""
+    """Create the tables and views that are missing (idempotent)."""
     with _lock, conn() as con:
         with con.cursor() as cur:
-            # before 11 the table was schema_version
-            cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'schema_version'")
-            if cur.fetchone()[0]:
-                cur.execute("RENAME TABLE schema_version TO hlt_schema_version")
+            for stmt in SCHEMA:
+                cur.execute(stmt + TABLE_OPTIONS)
+            cur.execute(DELAY_BY_TYPE)
+            cur.execute(DELAY_BY_DAY)
             cur.execute("CREATE TABLE IF NOT EXISTS hlt_schema_version (version INT PRIMARY KEY, applied_at DATETIME(3) NOT NULL)" + TABLE_OPTIONS)
-            cur.execute("SELECT COALESCE(MAX(version), 0) FROM hlt_schema_version")
-            current = cur.fetchone()[0]
-        steps = migrations()
-        assert len(steps) == SCHEMA_VERSION
-        for i in range(current, len(steps)):
-            version = i + 1
-            for stmt in steps[i]:
-                if callable(stmt):
-                    stmt(con)
-                    continue
-                if stmt.startswith("CREATE TABLE"):
-                    stmt += TABLE_OPTIONS
-                with con.cursor() as cur:
-                    try:
-                        cur.execute(stmt)
-                    except pymysql.MySQLError as e:
-                        raise RuntimeError(f"migration {version}: {e}\n{stmt}") from e
-            with con.cursor() as cur:
-                cur.execute("INSERT INTO hlt_schema_version VALUES (%s, UTC_TIMESTAMP(3))", (version,))
-            log.info("applied schema migration %d", version)
+            cur.execute("INSERT IGNORE INTO hlt_schema_version VALUES (%s, UTC_TIMESTAMP(3))", (SCHEMA_VERSION,))

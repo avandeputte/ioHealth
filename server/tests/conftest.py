@@ -3,6 +3,7 @@ IOSUITE_TEST_DB=host:port:user:password): two scratch databases, health_test and
 recreated per session, never a live one. Without a test server the suite is skipped. The app starts once per session;
 every test begins with empty tables."""
 import os
+import re
 
 import pytest
 
@@ -20,7 +21,7 @@ os.environ.pop("ADMIN_PASSWORD", None)
 
 from app import db  # noqa: E402
 
-HEALTH_TABLES = tuple(db.RENAME_TABLES.values())
+HEALTH_TABLES = tuple(re.search(r"hlt_\w+", s).group(0) for s in db.SCHEMA)
 
 
 @pytest.fixture(scope="session")
