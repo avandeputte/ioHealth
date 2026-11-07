@@ -17,7 +17,7 @@ dependencies = [
   "pymysql<2",
   "pyjwt[crypto]<3",   # Cloudflare Access tokens (proxy sign-in)
   "tzdata",            # the browser's time zone, on an image without zoneinfo
-  "iosuite-shared @ git+https://github.com/avandeputte/iosuite-shared.git@66a675dbccfee2ded53d9d2e4dacb15c50dec34c",   # iosuite-shared 0.24.0, the suite's shared library: accounts, sessions, the Shared ioSuite database (pinned: bump to pick up a new one)
+  "iosuite-shared @ git+https://github.com/avandeputte/iosuite-shared.git@7a4287bef8c51bcf8420032437db06829acd75bb",   # iosuite-shared 0.24.0, the suite's shared library: accounts, sessions, the Shared ioSuite database (pinned: bump to pick up a new one)
 ]
 
 [project.optional-dependencies]
