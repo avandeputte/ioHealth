@@ -10,7 +10,7 @@
 #   --db HOST:PORT/DB:USER:PASSWORD        the health data (IOHEALTH_DB in the environment does the same, off the command line)
 #   --suite-db HOST:PORT/DB:USER:PASSWORD  the Shared ioSuite database (IOHEALTH_SUITE_DB does the same; default: the
 #                                          same server, database and user iosuite)
-#   --admin NAME:PASS (or IOHEALTH_ADMIN) | --no-admin   --port 47800   --public-url URL   --cookie-domain DOMAIN
+#   --admin NAME:PASS (or IOHEALTH_ADMIN) | --no-admin   --port 8650   --public-url URL   --cookie-domain DOMAIN
 #   --service | --no-service   --python PATH   --system-deps | --no-system-deps   --yes
 #   --db-admin USER:PASSWORD      a MariaDB / MySQL administrator (root...): the databases and users above are created
 #                                 for you, with the passwords you answered (IOHEALTH_DB_ADMIN does the same; empty: they exist)
@@ -92,7 +92,7 @@ setenv PUBLIC_URL "$PUBURL"
 setenv COOKIE_DOMAIN "$COOKIE"
 [ -n "$TZV" ] || { T="$(getenv TZ)"; ask TZV "Time zone" "${T:-$(cat /etc/timezone 2>/dev/null || echo UTC)}"; }
 setenv TZ "$TZV"
-if [ -z "$PORT" ]; then ask PORT "Port" "$(getenv PORT | grep . || echo 47800)"; [ -n "$PORT" ] || PORT=47800; fi
+if [ -z "$PORT" ]; then ask PORT "Port" "$(getenv PORT | grep . || echo 8650)"; [ -n "$PORT" ] || PORT=8650; fi
 setenv PORT "$PORT"
 if [ -z "$ADMIN" ] && [ "$NO_ADMIN" = 0 ] && [ "$YES" = 0 ] && [ -t 0 ]; then
   ask AN "First admin, only for an empty Shared ioSuite database (empty: none, or make it in the browser)" ""

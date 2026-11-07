@@ -2,7 +2,7 @@
 
 # Copyright (c) 2026 Alex Van de Putte
 # License: MIT
-# Source: https://github.com/avandeputte/ioHealth
+# Source: https://github.com/avandeputte/iohealth
 # ioHealth: runs inside the LXC, driven by proxmox/ct/iohealth.sh (community-scripts framework).
 # This only installs the system packages; the ct script then puts the code in /opt/iohealth/app and runs the app's
 # own setup.sh inside the container with the answers given on the host (databases, accounts, service).

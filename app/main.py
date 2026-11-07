@@ -1,4 +1,4 @@
-"""ioHealth: the iPhone app's upload API and the fitness web app, on one port (47800), over the ioThing suite's
+"""ioHealth: the iPhone app's upload API and the fitness web app, on one port (8650), over the ioThing suite's
 shared accounts (iosuite-shared, as in every app of the suite).
 
 Who may call a route is declared on the route (app/access.py); iosuite-shared's middleware works out who is asking
