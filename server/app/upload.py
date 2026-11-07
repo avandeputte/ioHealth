@@ -6,7 +6,7 @@
   POST /v1/sessions/{id}/finish         {"totalSent"} -> {"received"}: the items this session applied
 
 The phone signs in with `Authorization: Bearer <app password>` (an app password of an editor account, made under
-Settings › Account in the web app). A batch is applied in
+Settings › Apps and devices in the web app). A batch is applied in
 one transaction together with its sequence number, so a batch resent after a lost reply is acknowledged without
 being applied twice. The line shapes mirror Shared/SyncProtocol.swift.
 """
